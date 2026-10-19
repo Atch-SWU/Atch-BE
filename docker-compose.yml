@@ -1,0 +1,84 @@
+# Atch! 로컬 개발 환경
+# Spring Boot 애플리케이션은 IntelliJ에서 직접 실행
+# PostgreSQL과 Redis만 Docker 컨테이너로 관리
+
+services:
+
+  # PostgreSQL 데이터베이스
+  postgres:
+
+    # PostgreSQL 16 + pgvector 확장 기능이 설치된 이미지
+    image: pgvector/pgvector:pg16
+
+    # Docker Desktop 재시작 시 컨테이너 자동 재시작
+    restart: unless-stopped
+
+    # PostgreSQL 초기 데이터베이스 및 계정 설정
+    # 실제 값은 프로젝트 루트의 .env 파일에서 읽어옴
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+    # PostgreSQL 포트 매핑
+    # 127.0.0.1: Mac 내부에서만 접속을 허용
+    # 첫 번째 5432: Mac에서 접속하는 포트
+    # 두 번째 5432: PostgreSQL 컨테이너 내부 포트
+    ports:
+      - "127.0.0.1:5432:5432"
+
+    # 컨테이너를 삭제해도 DB 데이터가 유지되도록 볼륨 연결
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    # PostgreSQL이 정상적으로 연결 가능한 상태인지 확인
+    healthcheck:
+      # CMD-SHELL: 컨테이너 내부의 셸을 통해 명령어 실행
+      # pg_isready: PostgreSQL 서버의 연결 가능 여부 확인
+      test: [ "CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"' ]
+
+      # 10초마다 상태 확인
+      interval: 10s
+
+      # 명령어 실행 제한 시간 5초
+      timeout: 5s
+
+      # 연속 5회 실패하면 unhealthy로 판단
+      retries: 5
+
+      # 컨테이너 시작 후 초기 준비 유예 기간
+      start_period: 10s
+
+
+  # Redis 캐시 및 인증 세션 저장소
+  redis:
+
+    # Redis 7.2 이미지
+    image: redis:7.2
+
+    restart: unless-stopped
+
+    # AOF(Append Only File) 영속성 활성화
+    # Redis 데이터를 디스크에 기록하여 재시작 후 복구 가능하게 함
+    command: ["redis-server", "--appendonly", "yes"]
+
+    # 다른 프로젝트와의 충돌 방지를 위해 호스트 포트 6380 사용
+    ports:
+      - "127.0.0.1:6380:6379"
+
+    # Redis 데이터 저장용 볼륨
+    volumes:
+      - redis_data:/data
+
+    # Redis가 정상적으로 명령을 처리할 수 있는지 확인
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+# Docker가 관리하는 영구 저장 공간
+volumes:
+  postgres_data:
+  redis_data:
