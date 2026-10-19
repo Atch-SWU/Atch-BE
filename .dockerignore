@@ -1,0 +1,21 @@
+# Git
+.git
+.github
+
+# IDE 설정
+.idea
+*.iml
+
+# 로컬 Gradle 캐시 및 빌드 결과
+.gradle
+build
+
+# 로컬 환경변수 및 비밀정보
+.env
+.env.*
+
+# macOS 임시 파일
+.DS_Store
+
+# 개발 문서 및 로그
+*.log

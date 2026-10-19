@@ -13,8 +13,12 @@ bin/
 .gradle
 !gradle/wrapper/gradle-wrapper.jar
 
-# 패키지 파일
+# 일반적인 JAR 파일은 Git에서 제외
 *.jar
+
+# Gradle Wrapper 실행에 필요한 JAR는 Git에 포함
+!gradle/wrapper/gradle-wrapper.jar
+
 *.war
 *.nar
 *.ear
@@ -64,3 +68,6 @@ HELP.md
 !**/src/test/**/out/
 !**/src/main/**/bin/
 !**/src/test/**/bin/
+
+# Docker image archives
+*.tar.gz

@@ -28,6 +28,10 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
 
+	// Flyway
+	implementation 'org.springframework.boot:spring-boot-starter-flyway' // Spring Boot와 Flyway 자동 설정 연동
+	implementation 'org.flywaydb:flyway-database-postgresql' // PostgreSQL용 Flyway 데이터베이스 지원 모듈
+
 	// JPA
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
@@ -53,8 +57,16 @@ dependencies {
 	// PostgreSQL
 	runtimeOnly 'org.postgresql:postgresql'
 
+	// Spring Boot Actuator
+	// 애플리케이션과 DB, Redis 등의 상태를 점검하는 운영 기능
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+tasks.named('bootJar') {
+	archiveFileName = 'atch.jar'
 }
