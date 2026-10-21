@@ -48,6 +48,10 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.swu.atch.session.domain.Session;
+import com.swu.atch.session.domain.SessionEndReason;
+import com.swu.atch.session.repository.SessionRepository;
+
 @DataJpaTest(
         showSql = false,
         properties = "spring.config.location=classpath:/application-todo-test.properties"
@@ -82,7 +86,10 @@ class TodoRepositoryTest {
     // 메인 애플리케이션의 인증·Redis 설정을 스캔하지 않음
     @Configuration(proxyBeanMethods = false)
     @EntityScan(basePackageClasses = AtchApplication.class)
-    @EnableJpaRepositories(basePackageClasses = TodoRepository.class)
+    @EnableJpaRepositories(basePackageClasses = {
+            TodoRepository.class,
+            SessionRepository.class
+    })
     static class JpaConfiguration {
 
         @Bean
@@ -121,8 +128,11 @@ class TodoRepositoryTest {
     @Autowired
     private DataSource dataSource;
 
+    @Autowired
+    private SessionRepository sessionRepository;
+
     @Test
-    void migratesV1ThroughV4AndValidatesJpaOnTheContainer() throws SQLException {
+    void migratesV1ThroughV5AndValidatesJpaOnTheContainer() throws SQLException {
         assertThat(flyway.getConfiguration().getDataSource()).isSameAs(dataSource);
         try (var connection = dataSource.getConnection()) {
             assertThat(connection.getMetaData().getURL()).isEqualTo(POSTGRES.getJdbcUrl());
@@ -130,7 +140,8 @@ class TodoRepositoryTest {
         }
         assertThat(Arrays.stream(flyway.info().applied())
                 .map(MigrationInfo::getVersion)
-                .map(Object::toString).toList()).containsExactly("1", "2", "3", "4");
+                .map(Object::toString).toList())
+                .containsExactly("1", "2", "3", "4", "5");
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM pg_extension WHERE extname = 'vector'", Long.class
         )).isEqualTo(1L);
@@ -305,4 +316,118 @@ class TodoRepositoryTest {
         assertThat(cause.getSQLState()).isEqualTo(sqlState);
         assertThat(cause.getMessage()).contains(constraint);
     }
+
+
+    @Test
+    void savesAndQueriesSessions() {
+        User owner = persistUser("세션사용자");
+        User other = persistUser("다른사용자");
+        Todo todo = persistTodo(owner, null);
+
+        // 첫 번째 집중 구간: 30분 후 일시정지
+        Session first = Session.start(todo, START);
+        first.finish(
+                START.plusSeconds(1800),
+                SessionEndReason.PAUSED
+        );
+        sessionRepository.saveAndFlush(first);
+
+        // 두 번째 집중 구간: 재개 후 실행 중
+        Session second = sessionRepository.saveAndFlush(
+                Session.start(todo, START.plusSeconds(3600))
+        );
+
+        entityManager.clear();
+
+        // 전체 구간 저장 및 순서 확인
+        var sessions = sessionRepository
+                .findByTodo_IdAndTodo_User_IdOrderByStartedAtAscIdAsc(
+                        todo.getId(), owner.getId()
+                );
+
+        assertThat(sessions)
+                .extracting(Session::getId)
+                .containsExactly(first.getId(), second.getId());
+
+        assertThat(sessions.get(0).getDurationSeconds())
+                .isEqualTo(1800);
+        assertThat(sessions.get(0).getEndReason())
+                .isEqualTo(SessionEndReason.PAUSED);
+
+        // 실행 중인 Session 확인
+        var running = sessionRepository
+                .findByTodo_IdAndTodo_User_IdAndEndedAtIsNull(
+                        todo.getId(), owner.getId()
+                );
+
+        assertThat(running).isPresent();
+        assertThat(running.orElseThrow().getId())
+                .isEqualTo(second.getId());
+        assertThat(running.orElseThrow().getDurationSeconds())
+                .isNull();
+
+        // 종료된 구간만 실제 수행시간에 합산
+        assertThat(sessionRepository
+                .sumDurationSecondsByTodoIdAndUserId(
+                        todo.getId(), owner.getId()
+                ))
+                .isEqualTo(1800L);
+
+        // 다른 사용자는 조회할 수 없음
+        assertThat(sessionRepository
+                .findByTodo_IdAndTodo_User_IdAndEndedAtIsNull(
+                        todo.getId(), other.getId()
+                ))
+                .isEmpty();
+    }
+
+    @Test
+    void rejectsDuplicateOpenSessions() {
+        User owner = persistUser("중복검사");
+        Todo todo = persistTodo(owner, null);
+
+        sessionRepository.saveAndFlush(
+                Session.start(todo, START)
+        );
+
+        // 동일 Todo에 열린 Session을 다시 생성할 수 없음
+        assertViolation(
+                () -> jdbc.update(
+                        """
+                        INSERT INTO sessions (todo_id, started_at)
+                        VALUES (?, CURRENT_TIMESTAMP)
+                        """,
+                        todo.getId()
+                ),
+                "23505",
+                "uq_sessions_open_todo"
+        );
+    }
+
+    @Test
+    void rejectsIncompleteSessionClosure() {
+        User owner = persistUser("종료검사");
+        Todo todo = persistTodo(owner, null);
+
+        Session session = sessionRepository.saveAndFlush(
+                Session.start(todo, START)
+        );
+
+        // 종료 시각과 종료 사유만 설정하고
+        // duration_seconds를 빠뜨린 잘못된 데이터
+        assertViolation(
+                () -> jdbc.update(
+                        """
+                        UPDATE sessions
+                        SET ended_at = started_at,
+                            end_reason = 'PAUSED'
+                        WHERE id = ?
+                        """,
+                        session.getId()
+                ),
+                "23514",
+                "ck_sessions_end_fields"
+        );
+    }
+
 }
