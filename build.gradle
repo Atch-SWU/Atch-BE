@@ -56,6 +56,8 @@ dependencies {
 
 	// PostgreSQL
 	runtimeOnly 'org.postgresql:postgresql'
+	testImplementation 'org.testcontainers:testcontainers-postgresql'
+	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
 
 	// Spring Boot Actuator
 	// 애플리케이션과 DB, Redis 등의 상태를 점검하는 운영 기능
