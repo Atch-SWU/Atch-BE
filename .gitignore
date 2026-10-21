@@ -71,3 +71,6 @@ HELP.md
 
 # Docker image archives
 *.tar.gz
+
+# JWT 키 파일
+/secrets/
