@@ -1,6 +1,7 @@
 # Git
 .git
 .github
+.git/
 
 # IDE 설정
 .idea
@@ -9,6 +10,7 @@
 # 로컬 Gradle 캐시 및 빌드 결과
 .gradle
 build
+build/
 
 # 로컬 환경변수 및 비밀정보
 .env
@@ -19,3 +21,8 @@ build
 
 # 개발 문서 및 로그
 *.log
+
+secrets/
+
+# EC2 전송용 Docker 이미지 압축 파일
+atch-app-*.tar.gz
