@@ -13,6 +13,8 @@ public enum ErrorCode {
     RESOURCE_CONFLICT(HttpStatus.CONFLICT, "요청한 작업이 현재 상태와 충돌합니다."),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
+    // Refresh Token이 만료됐거나, 세션이 삭제됐거나, 이전 토큰 재사용이 감지된 경우
+    REFRESH_SESSION_INVALID(HttpStatus.UNAUTHORIZED, "인증 세션이 유효하지 않습니다. 다시 로그인해주세요."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다.");
 
     private final HttpStatus status;
