@@ -64,6 +64,9 @@ dependencies {
 	// Spring MVC 기반 OpenAPI 3 문서 및 Swagger UI
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
 
+	// OAuth2 Resource Server 기반 JWT 검증
+	implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
+
 }
 
 tasks.named('test') {

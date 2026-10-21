@@ -32,6 +32,7 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
             HttpServletResponse response,
             AuthenticationException authException
     ) throws IOException {
+        response.setHeader("WWW-Authenticate", "Bearer");
         writeError(response, request, ErrorCode.UNAUTHORIZED);
     }
 
