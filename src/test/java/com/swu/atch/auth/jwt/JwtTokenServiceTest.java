@@ -3,7 +3,7 @@ package com.swu.atch.auth.jwt;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import com.swu.atch.support.IsolatedAuthIntegrationTest;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 
@@ -11,8 +11,7 @@ import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest
-class JwtTokenServiceTest {
+class JwtTokenServiceTest extends IsolatedAuthIntegrationTest {
 
     @Autowired
     private JwtTokenService jwtTokenService;
@@ -29,7 +28,7 @@ class JwtTokenServiceTest {
 
         assertEquals("100", decoded.getSubject());
         assertEquals(
-                "https://52-195-10-40.sslip.io",
+                "https://atch.test.invalid",
                 decoded.getIssuer().toString()
         );
         assertTrue(decoded.getAudience().contains("atch-api"));

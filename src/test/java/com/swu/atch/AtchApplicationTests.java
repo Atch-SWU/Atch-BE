@@ -1,10 +1,9 @@
 package com.swu.atch;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
+import com.swu.atch.support.IsolatedAuthIntegrationTest;
 
-@SpringBootTest
-class AtchApplicationTests {
+class AtchApplicationTests extends IsolatedAuthIntegrationTest {
 
 	@Test
 	void contextLoads() {

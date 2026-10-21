@@ -7,13 +7,12 @@ import com.swu.atch.user.domain.User;
 import com.swu.atch.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import com.swu.atch.support.IsolatedAuthIntegrationTest;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest
-class AuthSessionServiceTest {
+class AuthSessionServiceTest extends IsolatedAuthIntegrationTest {
 
     @Autowired
     private AuthSessionService authSessionService;
@@ -40,7 +39,7 @@ class AuthSessionServiceTest {
 
             assertEquals("Bearer", response.tokenType());
             assertEquals(900, response.accessTokenExpiresIn());
-            assertNotEquals(issued.token(), response.refreshToken());
+            assertFalse(issued.token().equals(response.refreshToken()), "Refresh Token이 교체되어야 합니다.");
             assertEquals(issued.expiresAt(), response.refreshTokenExpiresAt());
 
             // 발급된 Access Token의 사용자 식별자 확인
