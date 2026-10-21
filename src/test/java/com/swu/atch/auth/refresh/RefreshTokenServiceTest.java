@@ -4,7 +4,7 @@ package com.swu.atch.auth.refresh;
 import com.swu.atch.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import com.swu.atch.support.IsolatedAuthIntegrationTest;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -22,8 +22,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-@SpringBootTest
-class RefreshTokenServiceTest {
+class RefreshTokenServiceTest extends IsolatedAuthIntegrationTest {
 
     @Autowired
     private RefreshTokenService refreshTokenService;
@@ -42,7 +41,7 @@ class RefreshTokenServiceTest {
         // 기존 토큰을 새 토큰으로 교체
         var rotated = refreshTokenService.rotate(issued.token());
 
-        assertNotEquals(issued.token(), rotated.token());
+        assertFalse(issued.token().equals(rotated.token()), "Refresh Token이 교체되어야 합니다.");
         assertEquals(100L, rotated.userId());
         assertEquals(issued.expiresAt(), rotated.expiresAt());
 
@@ -96,7 +95,7 @@ class RefreshTokenServiceTest {
             String expectedHash = HexFormat.of().formatHex(digest);
 
             // 원문 대신 SHA-256 해시가 저장됐는지 확인
-            assertEquals(expectedHash, fields.get("tokenHash"));
+            assertTrue(expectedHash.equals(fields.get("tokenHash")), "Refresh Token 해시가 일치해야 합니다.");
             assertFalse(fields.containsValue(issued.token()));
 
             // 최초 만료 시각 및 14일 TTL 확인
@@ -127,10 +126,8 @@ class RefreshTokenServiceTest {
             byte[] newDigest = MessageDigest.getInstance("SHA-256")
                     .digest(rotated.token().getBytes(StandardCharsets.UTF_8));
 
-            assertEquals(
-                    HexFormat.of().formatHex(newDigest),
-                    redisTemplate.opsForHash().get(key, "tokenHash")
-            );
+            assertTrue(HexFormat.of().formatHex(newDigest).equals(
+                    redisTemplate.opsForHash().get(key, "tokenHash")), "갱신 해시가 일치해야 합니다.");
 
         } finally {
             // 테스트 성공·실패 여부와 관계없이 생성한 세션 정리
