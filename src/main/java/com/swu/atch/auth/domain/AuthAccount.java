@@ -92,4 +92,9 @@ public class AuthAccount {
         account.providerUserId = providerUserId;
         return account;
     }
+
+    // 로그인 성공 시각 갱신
+    public void recordLogin() {
+        this.lastLoginAt = Instant.now();
+    }
 }

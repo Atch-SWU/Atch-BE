@@ -67,6 +67,9 @@ dependencies {
 	// OAuth2 Resource Server 기반 JWT 검증
 	implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
 
+	// 이메일 인증코드 발송
+	implementation 'org.springframework.boot:spring-boot-starter-mail'
+
 }
 
 tasks.named('test') {

@@ -3,14 +3,13 @@ package com.swu.atch.config;
 import com.swu.atch.auth.security.SecurityErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.config.Customizer;
 
@@ -46,6 +45,16 @@ public class SecurityConfig {
                                 "/v3/api-docs.yaml",
                                 "/actuator/health",
                                 "/actuator/health/**"
+                        ).permitAll()
+                        // 로그인 전 이용하는 이메일 인증·회원가입·로그인 API
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/v1/auth/email/code",
+                                "/api/v1/auth/email/verify",
+                                "/api/v1/auth/signup",
+                                "/api/v1/auth/login",
+                                "/api/v1/auth/token/refresh",
+                                "/api/v1/auth/logout"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
