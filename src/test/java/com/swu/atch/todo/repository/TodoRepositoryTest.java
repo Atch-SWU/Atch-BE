@@ -1,6 +1,11 @@
 package com.swu.atch.todo.repository;
 
 import com.swu.atch.AtchApplication;
+import com.swu.atch.report.domain.TodoDailySnapshot;
+import com.swu.atch.report.repository.TodoDailySnapshotRepository;
+import com.swu.atch.session.domain.Session;
+import com.swu.atch.session.domain.SessionEndReason;
+import com.swu.atch.session.repository.SessionRepository;
 import com.swu.atch.todo.domain.SelectedEstimateType;
 import com.swu.atch.todo.domain.Todo;
 import com.swu.atch.todo.domain.TodoStatus;
@@ -40,6 +45,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Arrays;
@@ -47,10 +53,6 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-
-import com.swu.atch.session.domain.Session;
-import com.swu.atch.session.domain.SessionEndReason;
-import com.swu.atch.session.repository.SessionRepository;
 
 @DataJpaTest(
         showSql = false,
@@ -88,7 +90,8 @@ class TodoRepositoryTest {
     @EntityScan(basePackageClasses = AtchApplication.class)
     @EnableJpaRepositories(basePackageClasses = {
             TodoRepository.class,
-            SessionRepository.class
+            SessionRepository.class,
+            TodoDailySnapshotRepository.class
     })
     static class JpaConfiguration {
 
@@ -117,6 +120,12 @@ class TodoRepositoryTest {
     private TodoRepository todoRepository;
 
     @Autowired
+    private SessionRepository sessionRepository;
+
+    @Autowired
+    private TodoDailySnapshotRepository snapshotRepository;
+
+    @Autowired
     private EntityManager entityManager;
 
     @Autowired
@@ -128,11 +137,8 @@ class TodoRepositoryTest {
     @Autowired
     private DataSource dataSource;
 
-    @Autowired
-    private SessionRepository sessionRepository;
-
     @Test
-    void migratesV1ThroughV5AndValidatesJpaOnTheContainer() throws SQLException {
+    void migratesV1ThroughV6AndValidatesJpaOnTheContainer() throws SQLException {
         assertThat(flyway.getConfiguration().getDataSource()).isSameAs(dataSource);
         try (var connection = dataSource.getConnection()) {
             assertThat(connection.getMetaData().getURL()).isEqualTo(POSTGRES.getJdbcUrl());
@@ -140,8 +146,7 @@ class TodoRepositoryTest {
         }
         assertThat(Arrays.stream(flyway.info().applied())
                 .map(MigrationInfo::getVersion)
-                .map(Object::toString).toList())
-                .containsExactly("1", "2", "3", "4", "5");
+                .map(Object::toString).toList()).containsExactly("1", "2", "3", "4", "5", "6");
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM pg_extension WHERE extname = 'vector'", Long.class
         )).isEqualTo(1L);
@@ -286,6 +291,181 @@ class TodoRepositoryTest {
         );
     }
 
+
+    @Test
+    void savesAndQueriesSessions() {
+        User owner = persistUser("세션사용자");
+        User other = persistUser("다른세션사용자");
+        Todo todo = persistTodo(owner, null);
+
+        Session first = Session.start(todo, START);
+        first.finish(START.plusSeconds(1800), SessionEndReason.PAUSED);
+        sessionRepository.saveAndFlush(first);
+
+        Session second = sessionRepository.saveAndFlush(
+                Session.start(todo, START.plusSeconds(3600))
+        );
+        entityManager.clear();
+
+        var sessions = sessionRepository
+                .findByTodo_IdAndTodo_User_IdOrderByStartedAtAscIdAsc(
+                        todo.getId(), owner.getId());
+        assertThat(sessions).extracting(Session::getId)
+                .containsExactly(first.getId(), second.getId());
+        assertThat(sessions.get(0).getDurationSeconds()).isEqualTo(1800);
+        assertThat(sessions.get(0).getEndReason()).isEqualTo(SessionEndReason.PAUSED);
+
+        var running = sessionRepository
+                .findByTodo_IdAndTodo_User_IdAndEndedAtIsNull(
+                        todo.getId(), owner.getId());
+        assertThat(running).isPresent();
+        assertThat(running.orElseThrow().getId()).isEqualTo(second.getId());
+        assertThat(running.orElseThrow().getDurationSeconds()).isNull();
+
+        assertThat(sessionRepository.sumDurationSecondsByTodoIdAndUserId(
+                todo.getId(), owner.getId())).isEqualTo(1800L);
+        assertThat(sessionRepository
+                .findByTodo_IdAndTodo_User_IdAndEndedAtIsNull(
+                        todo.getId(), other.getId())).isEmpty();
+    }
+
+    @Test
+    void rejectsDuplicateOpenSessions() {
+        User owner = persistUser("열린세션검사");
+        Todo todo = persistTodo(owner, null);
+        sessionRepository.saveAndFlush(Session.start(todo, START));
+
+        assertViolation(() -> jdbc.update("""
+                INSERT INTO sessions (todo_id, started_at)
+                VALUES (?, CURRENT_TIMESTAMP)
+                """, todo.getId()), "23505", "uq_sessions_open_todo");
+    }
+
+    @Test
+    void rejectsIncompleteSessionClosure() {
+        User owner = persistUser("세션종료검사");
+        Todo todo = persistTodo(owner, null);
+        Session session = sessionRepository.saveAndFlush(Session.start(todo, START));
+
+        assertViolation(() -> jdbc.update("""
+                UPDATE sessions
+                SET ended_at = started_at, end_reason = 'PAUSED'
+                WHERE id = ?
+                """, session.getId()), "23514", "ck_sessions_end_fields");
+    }
+
+    @Test
+    void savesAndQueriesDailySnapshots() {
+        User owner = persistUser("스냅샷사용자");
+        User other = persistUser("다른스냅샷사용자");
+        Todo todo = persistTodo(owner, null);
+
+        // 10월 22일: 최초 배정일이므로 이전 날짜에서 이월된 Todo가 아님
+        TodoDailySnapshot first = snapshotRepository.saveAndFlush(
+                TodoDailySnapshot.capture(
+                        todo, SCHEDULE_DATE, false, false, DUE.minusSeconds(1)
+                )
+        );
+
+        // 이후의 현재 Todo 데이터 변경과 무관하게 전날 Snapshot은 보존되어야 함.
+        // 이 UPDATE는 테스트 픽스처이며 실제 자동 이월 기능 구현이 아님.
+        Instant completedAt = DUE.plusSeconds(1800);
+        jdbc.update("""
+                UPDATE todos
+                SET current_schedule_date = ?, status = 'COMPLETED', completed_at = ?
+                WHERE id = ?
+                """, SCHEDULE_DATE.plusDays(1), Timestamp.from(completedAt), todo.getId());
+        entityManager.refresh(todo);
+
+        // 10월 23일: 전날에서 이월되어 들어온 Todo
+        TodoDailySnapshot second = snapshotRepository.saveAndFlush(
+                TodoDailySnapshot.capture(
+                        todo, SCHEDULE_DATE.plusDays(1), true, true,
+                        DUE.plusSeconds(86400 - 1)
+                )
+        );
+        entityManager.clear();
+
+        var previousDay = snapshotRepository
+                .findByTodo_IdAndUser_IdAndScheduleDate(
+                        todo.getId(), owner.getId(), SCHEDULE_DATE).orElseThrow();
+        assertThat(previousDay.getStatusAtDayEnd()).isEqualTo(TodoStatus.PENDING);
+        assertThat(previousDay.isWasRolledOver()).isFalse();
+        assertThat(previousDay.isWasOverdue()).isFalse();
+        assertThat(previousDay.getCompletedAtSnapshot()).isNull();
+        assertThat(previousDay.getStartAtSnapshot()).isEqualTo(START);
+        assertThat(previousDay.getDueAtSnapshot()).isEqualTo(DUE);
+        assertThat(previousDay.getSnapshotAt()).isEqualTo(DUE.minusSeconds(1));
+        assertThat(previousDay.getCreatedAt()).isNotNull();
+
+        var nextDay = snapshotRepository
+                .findByTodo_IdAndUser_IdAndScheduleDate(
+                        todo.getId(), owner.getId(), SCHEDULE_DATE.plusDays(1)).orElseThrow();
+        assertThat(nextDay.getStatusAtDayEnd()).isEqualTo(TodoStatus.COMPLETED);
+        assertThat(nextDay.isWasRolledOver()).isTrue();
+        assertThat(nextDay.isWasOverdue()).isTrue();
+        assertThat(nextDay.getCompletedAtSnapshot()).isEqualTo(completedAt);
+        assertThat(nextDay.getStartAtSnapshot()).isEqualTo(START);
+        assertThat(nextDay.getDueAtSnapshot()).isEqualTo(DUE);
+
+        assertThat(snapshotRepository
+                .findByTodo_IdAndUser_IdAndScheduleDate(
+                        todo.getId(), other.getId(), SCHEDULE_DATE)).isEmpty();
+        assertThat(snapshotRepository.existsByTodo_IdAndScheduleDate(
+                todo.getId(), SCHEDULE_DATE)).isTrue();
+        assertThat(snapshotRepository
+                .findByUser_IdAndScheduleDateOrderByIdAsc(owner.getId(), SCHEDULE_DATE))
+                .extracting(TodoDailySnapshot::getId)
+                .containsExactly(first.getId());
+        assertThat(snapshotRepository
+                .findByUser_IdAndScheduleDateBetweenOrderByScheduleDateAscIdAsc(
+                        owner.getId(), SCHEDULE_DATE, SCHEDULE_DATE.plusDays(1)))
+                .extracting(TodoDailySnapshot::getId)
+                .containsExactly(first.getId(), second.getId());
+        assertThat(snapshotRepository.countByUser_IdAndScheduleDateAndStatusAtDayEnd(
+                owner.getId(), SCHEDULE_DATE, TodoStatus.PENDING)).isEqualTo(1L);
+        assertThat(snapshotRepository.countByUser_IdAndScheduleDateAndStatusAtDayEnd(
+                owner.getId(), SCHEDULE_DATE.plusDays(1), TodoStatus.COMPLETED)).isEqualTo(1L);
+    }
+
+    @Test
+    void rejectsDuplicateDailySnapshotForTheSameTodoAndDate() {
+        User owner = persistUser("스냅샷중복검사");
+        Todo todo = persistTodo(owner, null);
+        snapshotRepository.saveAndFlush(TodoDailySnapshot.capture(
+                todo, SCHEDULE_DATE, false, false, DUE.minusSeconds(1)));
+
+        assertViolation(() -> jdbc.update("""
+                INSERT INTO todo_daily_snapshots (
+                    todo_id, user_id, schedule_date, status_at_day_end,
+                    start_at_snapshot, due_at_snapshot,
+                    was_rolled_over, was_overdue, snapshot_at
+                )
+                SELECT todo_id, user_id, schedule_date, status_at_day_end,
+                    start_at_snapshot, due_at_snapshot,
+                    was_rolled_over, was_overdue, snapshot_at
+                FROM todo_daily_snapshots
+                WHERE todo_id = ? AND schedule_date = ?
+                """, todo.getId(), SCHEDULE_DATE),
+                "23505", "uq_todo_daily_snapshots_todo_date");
+    }
+
+    @Test
+    void rejectsUnknownDailySnapshotStatus() {
+        User owner = persistUser("스냅샷상태검사");
+        Todo todo = persistTodo(owner, null);
+        TodoDailySnapshot snapshot = snapshotRepository.saveAndFlush(
+                TodoDailySnapshot.capture(
+                        todo, SCHEDULE_DATE, false, false, DUE.minusSeconds(1)));
+
+        assertViolation(() -> jdbc.update("""
+                UPDATE todo_daily_snapshots
+                SET status_at_day_end = 'UNKNOWN'
+                WHERE id = ?
+                """, snapshot.getId()),
+                "23514", "ck_todo_daily_snapshots_status");
+    }
+
     private User persistUser(String nickname) {
         User user = new User(nickname);
         entityManager.persist(user);
@@ -316,118 +496,4 @@ class TodoRepositoryTest {
         assertThat(cause.getSQLState()).isEqualTo(sqlState);
         assertThat(cause.getMessage()).contains(constraint);
     }
-
-
-    @Test
-    void savesAndQueriesSessions() {
-        User owner = persistUser("세션사용자");
-        User other = persistUser("다른사용자");
-        Todo todo = persistTodo(owner, null);
-
-        // 첫 번째 집중 구간: 30분 후 일시정지
-        Session first = Session.start(todo, START);
-        first.finish(
-                START.plusSeconds(1800),
-                SessionEndReason.PAUSED
-        );
-        sessionRepository.saveAndFlush(first);
-
-        // 두 번째 집중 구간: 재개 후 실행 중
-        Session second = sessionRepository.saveAndFlush(
-                Session.start(todo, START.plusSeconds(3600))
-        );
-
-        entityManager.clear();
-
-        // 전체 구간 저장 및 순서 확인
-        var sessions = sessionRepository
-                .findByTodo_IdAndTodo_User_IdOrderByStartedAtAscIdAsc(
-                        todo.getId(), owner.getId()
-                );
-
-        assertThat(sessions)
-                .extracting(Session::getId)
-                .containsExactly(first.getId(), second.getId());
-
-        assertThat(sessions.get(0).getDurationSeconds())
-                .isEqualTo(1800);
-        assertThat(sessions.get(0).getEndReason())
-                .isEqualTo(SessionEndReason.PAUSED);
-
-        // 실행 중인 Session 확인
-        var running = sessionRepository
-                .findByTodo_IdAndTodo_User_IdAndEndedAtIsNull(
-                        todo.getId(), owner.getId()
-                );
-
-        assertThat(running).isPresent();
-        assertThat(running.orElseThrow().getId())
-                .isEqualTo(second.getId());
-        assertThat(running.orElseThrow().getDurationSeconds())
-                .isNull();
-
-        // 종료된 구간만 실제 수행시간에 합산
-        assertThat(sessionRepository
-                .sumDurationSecondsByTodoIdAndUserId(
-                        todo.getId(), owner.getId()
-                ))
-                .isEqualTo(1800L);
-
-        // 다른 사용자는 조회할 수 없음
-        assertThat(sessionRepository
-                .findByTodo_IdAndTodo_User_IdAndEndedAtIsNull(
-                        todo.getId(), other.getId()
-                ))
-                .isEmpty();
-    }
-
-    @Test
-    void rejectsDuplicateOpenSessions() {
-        User owner = persistUser("중복검사");
-        Todo todo = persistTodo(owner, null);
-
-        sessionRepository.saveAndFlush(
-                Session.start(todo, START)
-        );
-
-        // 동일 Todo에 열린 Session을 다시 생성할 수 없음
-        assertViolation(
-                () -> jdbc.update(
-                        """
-                        INSERT INTO sessions (todo_id, started_at)
-                        VALUES (?, CURRENT_TIMESTAMP)
-                        """,
-                        todo.getId()
-                ),
-                "23505",
-                "uq_sessions_open_todo"
-        );
-    }
-
-    @Test
-    void rejectsIncompleteSessionClosure() {
-        User owner = persistUser("종료검사");
-        Todo todo = persistTodo(owner, null);
-
-        Session session = sessionRepository.saveAndFlush(
-                Session.start(todo, START)
-        );
-
-        // 종료 시각과 종료 사유만 설정하고
-        // duration_seconds를 빠뜨린 잘못된 데이터
-        assertViolation(
-                () -> jdbc.update(
-                        """
-                        UPDATE sessions
-                        SET ended_at = started_at,
-                            end_reason = 'PAUSED'
-                        WHERE id = ?
-                        """,
-                        session.getId()
-                ),
-                "23514",
-                "ck_sessions_end_fields"
-        );
-    }
-
 }
