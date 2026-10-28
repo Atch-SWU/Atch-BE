@@ -50,8 +50,12 @@ public class Todo {
     private Long recurrenceRuleId;
 
     // 반복 회차의 최초 예정 시작 시각 (생성 후 불변)
-    @Column(name = "recurrence_occurrence_at")
+    @Column(name = "recurrence_occurrence_at", updatable = false)
     private Instant recurrenceOccurrenceAt;
+
+    // 반복 회차의 기준 날짜 (DAILY: 해당 날짜, WEEKLY: 해당 주 월요일)
+    @Column(name = "recurrence_period_start_date", updatable = false)
+    private LocalDate recurrencePeriodStartDate;
 
     // 투두 기본 정보
     @Column(nullable = false, length = 200)
@@ -135,6 +139,7 @@ public class Todo {
             User user,
             Long recurrenceRuleId,
             Instant recurrenceOccurrenceAt,
+            LocalDate recurrencePeriodStartDate,
             String title,
             String sourceTaskName,
             String memo,
@@ -201,11 +206,13 @@ public class Todo {
             );
         }
 
-        // 반복 규칙 ID와 생성 회차는 함께 존재해야 함
-        if ((recurrenceRuleId == null)
-                != (recurrenceOccurrenceAt == null)) {
+        // 반복 Todo의 규칙 ID와 두 회차 식별값은 함께 존재해야 함
+        boolean recurring = recurrenceRuleId != null;
+
+        if (recurring != (recurrenceOccurrenceAt != null)
+                || recurring != (recurrencePeriodStartDate != null)) {
             throw new IllegalArgumentException(
-                    "반복 규칙 ID와 생성 회차는 함께 지정해야 합니다."
+                    "반복 규칙 ID와 회차 식별값은 함께 지정해야 합니다."
             );
         }
 
@@ -229,6 +236,7 @@ public class Todo {
         this.user = user;
         this.recurrenceRuleId = recurrenceRuleId;
         this.recurrenceOccurrenceAt = recurrenceOccurrenceAt;
+        this.recurrencePeriodStartDate = recurrencePeriodStartDate;
         this.title = title.trim();
         this.sourceTaskName = sourceTaskName;
         this.memo = memo;
