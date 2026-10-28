@@ -214,7 +214,24 @@ class FlywayMigrationTest {
                 "V11 재실행 시 적용 이력이 바뀌면 안 됩니다.");
         assertTrue(afterUpgrade.equals(dataSnapshot(jdbc)), "V11 재실행 시 사용자·인증·설정이 보존되어야 합니다.");
         assertThat(v10DomainSnapshot(jdbc)).isEqualTo(domainBeforeV11);
-        System.out.println("V3->V9->V10->V11: preserved users/auth/settings/todos/patterns/rules; "
+        var beforeV12 = new java.util.LinkedHashMap<String, java.util.List<String>>();
+        for (String table : jdbc.queryForList("select tablename from pg_tables where schemaname='public' and tablename<>'flyway_schema_history' order by tablename", String.class)) {
+            beforeV12.put(table,jdbc.queryForList("select to_jsonb(t)::text from " + table + " t order by to_jsonb(t)::text",String.class));
+        }
+        Flyway v12=migration(dataSource,"12");
+        assertThat(v12.migrate().migrationsExecuted).isEqualTo(1);
+        v12.validate();
+        assertThat(v12.info().current().getVersion().toString()).isEqualTo("12");
+        assertThat(v12.info().pending()).isEmpty();
+        assertThat(jdbc.queryForList("SELECT * FROM flyway_schema_history WHERE version<>'12' ORDER BY installed_rank")).isEqualTo(historyV11);
+        for(var item:beforeV12.entrySet()) assertThat(jdbc.queryForList("select (to_jsonb(t)-'resume_counted')::text from " + item.getKey() + " t order by to_jsonb(t)::text",String.class)).isEqualTo(item.getValue());
+        for(String table:List.of("timer_switch_requests","user_daily_settlement_states")) assertThat(jdbc.queryForObject("select count(*) from "+table,Long.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from sessions where resume_counted is not null",Long.class)).isZero();
+        var historyV12=jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
+        assertThat(migration(dataSource,"12").migrate().migrationsExecuted).isZero();
+        assertThat(jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank")).isEqualTo(historyV12);
+        for(var item:beforeV12.entrySet()) assertThat(jdbc.queryForList("select (to_jsonb(t)-'resume_counted')::text from " + item.getKey() + " t order by to_jsonb(t)::text",String.class)).isEqualTo(item.getValue());
+        System.out.println("V3->V9->V10->V11->V12: preserved users/auth/settings/todos/patterns/rules; "
                 + "legacy recurrence guard verified; rerun migrations=0; "
                 + "database=atch_migration_test; container=" + POSTGRES.getContainerId());
     }

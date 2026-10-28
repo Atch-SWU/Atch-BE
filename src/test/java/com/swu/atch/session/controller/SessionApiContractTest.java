@@ -44,7 +44,7 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 
-// 인증·입력·문서만 검증한다. 타이머 상태 전환·횟수·전환 대기는 아직 미구현이다.
+// 실제 Controller의 인증·DTO·OpenAPI 계약을 유지한다. 상태 전환은 별도 통합 테스트에서 검증한다.
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
 @TestPropertySource(properties = {"springdoc.api-docs.enabled=true", "app.api.contracts.enabled=true"})
 @Transactional
@@ -87,15 +87,14 @@ class SessionApiContractTest extends IsolatedAuthIntegrationTest {
 
     @ParameterizedTest
     @MethodSource("routes")
-    void routesRequireRealAuthenticationAndExplicitlyReturn501(String method, String path, String body) throws Exception {
+    void routesRequireRealAuthenticationAndReachImplementedServices(String method, String path, String body) throws Exception {
         var unauthenticated = request(HttpMethod.valueOf(method), path);
         if (body != null) unauthenticated.contentType("application/json").content(body);
         assertThat(mvc.perform(unauthenticated).andReturn().getResponse().getStatus()).isEqualTo(401);
         var authenticated = request(HttpMethod.valueOf(method), path).header("Authorization", "Bearer " + accessToken);
         if (body != null) authenticated.contentType("application/json").content(body);
         var response = mvc.perform(authenticated).andReturn().getResponse();
-        assertThat(response.getStatus()).isEqualTo(501);
-        assertThat(json.readTree(response.getContentAsString()).path("code").asText()).isEqualTo("NOT_IMPLEMENTED");
+        assertThat(response.getStatus()).isEqualTo(path.equals("/api/v1/timer/current") || path.equals("/api/v1/settings/timer") ? 200 : 404);
     }
 
     static Stream<Arguments> invalidCommands() {
@@ -123,7 +122,7 @@ class SessionApiContractTest extends IsolatedAuthIntegrationTest {
         }
         assertThat(mvc.perform(patch("/api/v1/settings/timer").header("Authorization", "Bearer " + accessToken)
                 .contentType("application/json").content("{\"taskSwitchRestrictionEnabled\":false}"))
-                .andReturn().getResponse().getStatus()).isEqualTo(501);
+                .andReturn().getResponse().getStatus()).isEqualTo(200);
     }
 
     @Test
@@ -158,9 +157,8 @@ class SessionApiContractTest extends IsolatedAuthIntegrationTest {
     }
 
     @Test
-    void allSevenContractControllersAreAbsentUnlessExplicitlyEnabled() {
-        var types = new Class<?>[]{SessionController.class, TimerSettingController.class, ReportController.class,
-                TimeEstimationProfileController.class, SimilarTodoController.class,
+    void onlyUnimplementedAiControllersRequireContractOptIn() {
+        var types = new Class<?>[]{TimeEstimationProfileController.class, SimilarTodoController.class,
                 TimePredictionController.class, TaskDecompositionController.class};
         // 실제 Spring 조건 평가로 기본 미등록을 확인한다. 공통 설정·인증 프로필을 바꾸지 않는다.
         for (boolean explicitFalse : List.of(false, true)) {
@@ -180,9 +178,9 @@ class SessionApiContractTest extends IsolatedAuthIntegrationTest {
             String path = ((String) args[1]).replace("/todos/1/", "/todos/{todoId}/")
                     .replace("11111111-1111-4111-8111-111111111111", "{switchId}");
             var operation = api.path("paths").path(path).path(((String) args[0]).toLowerCase());
-            assertThat(operation.path("description").asText()).contains("현재 501");
+            assertThat(operation.path("description").asText()).doesNotContain("현재 501");
             assertThat(operation.path("security").toString()).contains("bearerAuth");
-            assertThat(operation.path("responses").has("501")).isTrue();
+            assertThat(operation.path("responses").has("501")).isFalse();
             if (args[2] != null) {
                 var media = operation.path("requestBody").path("content").path("application/json");
                 assertThat(media.path("schema").path("$ref").asText()).startsWith("#/components/schemas/");

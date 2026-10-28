@@ -18,6 +18,15 @@ import java.util.Optional;
 // 사용자 투두 데이터 접근
 public interface TodoRepository extends JpaRepository<Todo, Long> {
 
+    List<Todo> findByUser_IdAndDeletedAtIsNullAndCurrentScheduleDateBeforeAndStatusNot(
+            Long userId, LocalDate date, TodoStatus status);
+    List<Todo> findByUser_IdAndDeletedAtIsNullAndStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThanOrderByCompletedAtDescIdDesc(
+            Long userId, TodoStatus status, java.time.Instant from, java.time.Instant to);
+    Page<Todo> findByUser_IdAndDeletedAtIsNullAndStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThan(
+            Long userId, TodoStatus status, java.time.Instant from, java.time.Instant to, Pageable pageable);
+    List<Todo> findTop3ByUser_IdAndDeletedAtIsNullAndStatusInOrderByCurrentScheduleDateAscStartAtAscIdAsc(
+            Long userId, Collection<TodoStatus> statuses);
+
     // User 잠금 이후 호출한다. 반복 삭제의 멱등 처리를 위해 삭제된 본인 행도 조회한다.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from Todo t where t.id = :id and t.user.id = :userId")

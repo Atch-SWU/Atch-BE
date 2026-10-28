@@ -326,6 +326,29 @@ public class Todo {
         this.deletedAt = deletedAt;
     }
 
+    // 시작·재개는 새 Session 생성과 같은 Service 트랜잭션에서 수행한다.
+    public void start() {
+        requireActive();
+        if (status != TodoStatus.PENDING && status != TodoStatus.PAUSED)
+            throw new IllegalStateException("시작 가능한 Todo가 아닙니다.");
+        status = TodoStatus.IN_PROGRESS;
+    }
+
+    public void pause() {
+        requireActive();
+        if (status != TodoStatus.IN_PROGRESS) throw new IllegalStateException("실행 중인 Todo가 아닙니다.");
+        status = TodoStatus.PAUSED;
+    }
+
+    // 원래 일정·반복 회차 식별값은 유지하고 현재 배정 날짜만 앞으로 이동한다.
+    public void rollOverTo(LocalDate date) {
+        requireActive();
+        java.util.Objects.requireNonNull(date);
+        if (status == TodoStatus.COMPLETED || date.isBefore(currentScheduleDate))
+            throw new IllegalStateException("이월 가능한 날짜·상태가 아닙니다.");
+        currentScheduleDate = date;
+    }
+
     private void requireActive() {
         if (deletedAt != null) throw new IllegalStateException("삭제된 Todo는 변경할 수 없습니다.");
     }

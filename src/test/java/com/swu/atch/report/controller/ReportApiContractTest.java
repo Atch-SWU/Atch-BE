@@ -62,13 +62,13 @@ class ReportApiContractTest extends IsolatedAuthIntegrationTest {
 
     @ParameterizedTest
     @MethodSource("routes")
-    void everyReadRequiresAuthenticationAndValidBindingReaches501(String path) throws Exception {
+    void everyReadRequiresAuthenticationAndReachesImplementedReports(String path) throws Exception {
         assertThat(mvc.perform(get(path)).andReturn().getResponse().getStatus()).isEqualTo(401);
         var response = mvc.perform(get(path).param("date", "2026-10-29")
                 .param("from", "2026-10-01").param("to", "2026-10-29")
                 .header("Authorization", "Bearer " + accessToken)).andReturn().getResponse();
-        assertThat(response.getStatus()).isEqualTo(501);
-        assertThat(json.readTree(response.getContentAsString()).path("code").asText()).isEqualTo("NOT_IMPLEMENTED");
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(json.readTree(response.getContentAsString()).has("asOf")).isTrue();
     }
 
     static Stream<Arguments> invalidQueries() {
@@ -134,7 +134,7 @@ class ReportApiContractTest extends IsolatedAuthIntegrationTest {
             var item = api.path("paths").path(path);
             assertThat(item.has("get")).isTrue();
             assertThat(item.has("post")).isFalse();
-            assertThat(item.path("get").path("description").asText()).contains("현재 501");
+            assertThat(item.path("get").path("description").asText()).doesNotContain("현재 501");
             assertThat(item.path("get").path("security").toString()).contains("bearerAuth");
         }
         var properties = api.path("components").path("schemas").path("DailyReportResponse").path("properties");

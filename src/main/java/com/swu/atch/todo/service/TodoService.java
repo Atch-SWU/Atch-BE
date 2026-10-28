@@ -30,7 +30,7 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
+@Transactional
 public class TodoService {
     private static final Sort LIST_ORDER = Sort.by("currentScheduleDate", "startAt", "id");
     private final TodoRepository todos;
@@ -38,11 +38,14 @@ public class TodoService {
     private final UserRepository users;
     private final AccountCredentials credentials;
     private final TodoSchedulePolicy schedule;
+    private final com.swu.atch.report.service.DailySettlementService settlements;
+    private final com.swu.atch.session.repository.TimerSwitchRepository switches;
 
     @Transactional
     public TodoResponse create(Long userId, String stamp, TodoCreateRequest request) {
-        User user = lockUser(userId, stamp);
-        Instant now = schedule.now();
+        var locked = lockUser(userId, stamp);
+        User user = locked.user();
+        Instant now = locked.now();
         schedule.requireNewStartDate(request.startDate(), now);
         var times = schedule.schedule(request.startDate(), request.startTime(), request.dueDate(), request.dueTime(), request.allDay());
         var todo = Todo.builder().user(user).title(request.title()).memo(request.memo())
@@ -51,11 +54,11 @@ public class TodoService {
                 .userEstimateSource(UserEstimateSource.USER_INPUT).selectedEstimateType(SelectedEstimateType.USER).build();
         // ID·Timestamp를 확정해 저장된 값을 응답한다.
         todos.saveAndFlush(todo);
-        return response(todo, 0L, now);
+        return toResponse(todo, 0L, now);
     }
 
     public TodoPageResponse list(Long userId, TodoListQuery query) {
-        Instant now = schedule.now();
+        Instant now = lockForRead(userId);
         var range = schedule.listRange(query, now);
         var pageable = PageRequest.of(query.page(), query.size(), LIST_ORDER);
         var page = query.status().isEmpty()
@@ -68,52 +71,56 @@ public class TodoService {
                 durations.put(total.getTodoId(), total.getDurationSeconds());
             }
         }
-        var items = page.getContent().stream().map(todo -> response(todo, durations.getOrDefault(todo.getId(), 0L), now)).toList();
+        var items = page.getContent().stream().map(todo -> toResponse(todo, durations.getOrDefault(todo.getId(), 0L), now)).toList();
         return new TodoPageResponse(range.from(), range.to(), items, page.getNumber(), page.getSize(),
                 page.getTotalElements(), page.getTotalPages(), page.hasNext());
     }
 
     public TodoCalendarResponse calendar(Long userId, TodoDateRangeQuery query) {
+        lockForRead(userId);
         var range = schedule.range(query.from(), query.to());
         return new TodoCalendarResponse(range.from(), range.to(), todos.findActiveScheduleDates(userId, range.from(), range.to()));
     }
 
     public TodoResponse detail(Long userId, Long todoId) {
+        Instant now = lockForRead(userId);
         var todo = todos.findByIdAndUser_IdAndDeletedAtIsNull(todoId, userId).orElseThrow(this::notFound);
-        return response(todo, actualSeconds(todo, userId), schedule.now());
+        return toResponse(todo, actualSeconds(todo, userId), now);
     }
 
     @Transactional
     public TodoResponse update(Long userId, String stamp, Long todoId, TodoUpdateRequest request) {
-        lockUser(userId, stamp);
+        var locked = lockUser(userId, stamp);
         var todo = lockActiveTodo(userId, todoId);
         requirePaused(todo, userId);
         if (todo.getStatus() == TodoStatus.COMPLETED) throw new BusinessException(ErrorCode.TODO_REOPEN_REQUIRED);
         var times = schedule.schedule(request.startDate(), request.startTime(), request.dueDate(), request.dueTime(), request.allDay());
         todo.updateDetails(request.title(), request.memo(), times.startAt(), times.dueAt(), request.allDay(), request.userEstimatedDurationMinutes());
+        movePastAssignmentToToday(todo, locked.now());
         todos.flush();
-        return response(todo, actualSeconds(todo, userId), schedule.now());
+        return toResponse(todo, actualSeconds(todo, userId), locked.now());
     }
 
     @Transactional
     public void delete(Long userId, String stamp, Long todoId) {
-        lockUser(userId, stamp);
+        var locked = lockUser(userId, stamp);
         var todo = todos.findOwnedByIdForUpdate(todoId, userId).orElseThrow(this::notFound);
         if (todo.getDeletedAt() != null) return;
         requirePaused(todo, userId);
-        todo.softDelete(schedule.now());
+        todo.softDelete(locked.now());
+        cancelWaiting(userId, todoId);
         todos.flush();
     }
 
     @Transactional
     public TodoResponse complete(Long userId, String stamp, Long todoId) {
-        lockUser(userId, stamp);
+        var locked = lockUser(userId, stamp);
         var todo = lockActiveTodo(userId, todoId);
         Optional<Session> open = openSession(todo, userId);
-        Instant now = schedule.now();
+        Instant now = locked.now();
         if (todo.getStatus() == TodoStatus.COMPLETED) {
             if (open.isPresent()) throw conflict();
-            return response(todo, actualSeconds(todo, userId), now);
+            return toResponse(todo, actualSeconds(todo, userId), now);
         }
         open.ifPresent(session -> {
             // 잘못된 시작 시각을 보정하거나 Session을 지우지 않고 전체 변경을 롤백한다.
@@ -122,26 +129,46 @@ public class TodoService {
             session.finish(now, SessionEndReason.COMPLETED);
         });
         todo.complete(now);
+        cancelWaiting(userId, todoId);
         // Session 종료와 Todo 상태를 함께 반영한 뒤 실제 초를 집계한다.
         todos.flush();
-        return response(todo, actualSeconds(todo, userId), now);
+        return toResponse(todo, actualSeconds(todo, userId), now);
     }
 
     @Transactional
     public TodoResponse reopen(Long userId, String stamp, Long todoId) {
-        lockUser(userId, stamp);
+        var locked = lockUser(userId, stamp);
         var todo = lockActiveTodo(userId, todoId);
         if (todo.getStatus() == TodoStatus.COMPLETED && openSession(todo, userId).isPresent()) throw conflict();
         todo.reopen();
+        movePastAssignmentToToday(todo, locked.now());
         todos.flush();
-        return response(todo, actualSeconds(todo, userId), schedule.now());
+        return toResponse(todo, actualSeconds(todo, userId), locked.now());
     }
 
-    private User lockUser(Long userId, String stamp) {
+    private LockedUser lockUser(Long userId, String stamp) {
+        settlements.requirePrepared(userId, stamp);
         // 기존 계정 변경·탈퇴와 같은 잠금 순서로 쓰기를 직렬화하고 오래된 인증을 재확인한다.
         User user = users.findByIdForUpdate(userId).orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
         credentials.requireCurrent(credentials.localAccount(userId), stamp);
-        return user;
+        return new LockedUser(user, settlements.requireCurrentLocked(user));
+    }
+
+    private Instant lockForRead(Long userId) {
+        settlements.requirePrepared(userId, null);
+        var user = users.findByIdForUpdate(userId).orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+        return settlements.requireCurrentLocked(user);
+    }
+
+    private void movePastAssignmentToToday(Todo todo, Instant now) {
+        var today = schedule.seoulDate(now);
+        if (todo.getStatus() != TodoStatus.COMPLETED && todo.getCurrentScheduleDate().isBefore(today)) todo.rollOverTo(today);
+    }
+
+    private void cancelWaiting(Long userId, Long todoId) {
+        switches.findByUser_IdAndState(userId, com.swu.atch.session.domain.TimerSwitchState.WAITING).ifPresent(item -> {
+            if (item.getSourceTodo().getId().equals(todoId) || item.getTargetTodo().getId().equals(todoId)) item.cancel();
+        });
     }
 
     private Todo lockActiveTodo(Long userId, Long todoId) {
@@ -164,7 +191,8 @@ public class TodoService {
         return sessions.sumDurationSecondsByTodoIdAndUserId(todo.getId(), userId);
     }
 
-    private TodoResponse response(Todo todo, long actualSeconds, Instant now) {
+    // 이미 잠근 Todo를 응답으로 변환한다. 새로운 정산·조회·시각 갱신은 하지 않는다.
+    public TodoResponse toResponse(Todo todo, long actualSeconds, Instant now) {
         boolean completed = todo.getStatus() == TodoStatus.COMPLETED;
         Integer estimate = todo.getSelectedEstimateType() == SelectedEstimateType.AI
                 ? todo.getAiEstimatedDurationMinutes() : todo.getUserEstimatedDurationMinutes();
@@ -176,6 +204,8 @@ public class TodoService {
                 todo.getRecurrenceRuleId(), todo.getRecurrenceOccurrenceAt(), todo.getRecurrencePeriodStartDate(),
                 todo.getCreatedAt(), todo.getUpdatedAt());
     }
+
+    private record LockedUser(User user, Instant now) { }
 
     private BusinessException notFound() { return new BusinessException(ErrorCode.RESOURCE_NOT_FOUND); }
     private BusinessException conflict() { return new BusinessException(ErrorCode.RESOURCE_CONFLICT); }
