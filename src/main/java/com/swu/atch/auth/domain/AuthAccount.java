@@ -97,4 +97,14 @@ public class AuthAccount {
     public void recordLogin() {
         this.lastLoginAt = Instant.now();
     }
+
+    // 인코더가 생성한 LOCAL 비밀번호 해시만 교체
+    public void changePasswordHash(String passwordHash) {
+        if (provider != AuthProvider.LOCAL || passwordHash == null
+                || passwordHash.isBlank() || passwordHash.length() > 255
+                || !passwordHash.matches("\\{bcrypt\\}\\$2[aby]\\$[0-9]{2}\\$[./A-Za-z0-9]{53}")) {
+            throw new IllegalArgumentException("유효한 LOCAL 비밀번호 해시가 필요합니다.");
+        }
+        this.passwordHash = passwordHash;
+    }
 }

@@ -128,7 +128,7 @@ public abstract class IsolatedAuthIntegrationTest {
             var container = new PostgreSQLContainer(DockerImageName.parse("pgvector/pgvector:pg16")
                     .asCompatibleSubstituteFor("postgres"))
                     .withDatabaseName("atch_auth_test")
-                    .withLabel("atch.verification", "v9")
+                    .withLabel("atch.verification", "account-api")
                     .withReuse(false);
             try {
                 container.start();
@@ -144,7 +144,7 @@ public abstract class IsolatedAuthIntegrationTest {
             var container = new GenericContainer<>(DockerImageName.parse("redis:7.2"))
                     .withExposedPorts(6379)
                     .withCommand("redis-server", "--save", "", "--appendonly", "no")
-                    .withLabel("atch.verification", "v9")
+                    .withLabel("atch.verification", "account-api")
                     .withReuse(false);
             try {
                 container.start();

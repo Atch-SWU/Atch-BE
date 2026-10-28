@@ -4,18 +4,14 @@ import com.swu.atch.auth.domain.AuthProvider;
 import com.swu.atch.auth.dto.request.LoginRequest;
 import com.swu.atch.auth.dto.request.SignUpRequest;
 import com.swu.atch.auth.dto.response.TokenResponse;
-import com.swu.atch.auth.jwt.JwtTokenService;
-import com.swu.atch.auth.refresh.RefreshTokenService;
 import com.swu.atch.auth.repository.AuthAccountRepository;
 import com.swu.atch.common.exception.BusinessException;
 import com.swu.atch.common.exception.ErrorCode;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DataAccessException;
 
-import java.time.Duration;
 import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
 
@@ -27,27 +23,21 @@ public class LocalAuthService {
     private final AuthAccountRepository authAccountRepository;
     private final EmailVerificationService emailVerificationService;
     private final LocalAuthPersistenceService persistenceService;
-    private final JwtTokenService jwtTokenService;
-    private final RefreshTokenService refreshTokenService;
+    private final AuthSessionService sessionService;
     private final PasswordEncoder passwordEncoder;
-    private final Duration accessTokenTtl;
 
     public LocalAuthService(
             AuthAccountRepository authAccountRepository,
             EmailVerificationService emailVerificationService,
             LocalAuthPersistenceService persistenceService,
-            JwtTokenService jwtTokenService,
-            RefreshTokenService refreshTokenService,
-            PasswordEncoder passwordEncoder,
-            @Value("${app.jwt.access-token-ttl}") Duration accessTokenTtl
+            AuthSessionService sessionService,
+            PasswordEncoder passwordEncoder
     ) {
         this.authAccountRepository = authAccountRepository;
         this.emailVerificationService = emailVerificationService;
         this.persistenceService = persistenceService;
-        this.jwtTokenService = jwtTokenService;
-        this.refreshTokenService = refreshTokenService;
+        this.sessionService = sessionService;
         this.passwordEncoder = passwordEncoder;
-        this.accessTokenTtl = accessTokenTtl;
     }
 
     // 이메일 인증 완료 후 회원가입 및 자동 로그인
@@ -100,7 +90,7 @@ public class LocalAuthService {
 
         try {
             // DB 커밋 성공 이후 자동 로그인 토큰 발급
-            return issueTokens(userId, request.deviceId());
+            return sessionService.issue(userId, request.deviceId(), null);
         } catch (RuntimeException ex) {
             // 계정 생성은 완료됐으므로 회원가입을 다시 시도하면 안 됨
             log.error("회원가입 완료 후 자동 로그인 실패, userId={}", userId, ex);
@@ -115,30 +105,12 @@ public class LocalAuthService {
     public TokenResponse login(LoginRequest request) {
         String email = normalizeEmail(request.email());
 
-        Long userId = persistenceService.authenticate(
+        var authenticated = persistenceService.authenticate(
                 email,
                 request.password()
         );
 
-        return issueTokens(userId, request.deviceId());
-    }
-
-    // Access Token과 Refresh Token을 함께 발급
-    private TokenResponse issueTokens(Long userId, String deviceId) {
-        String accessToken = jwtTokenService.issueAccessToken(userId);
-
-        var refreshToken = refreshTokenService.create(
-                userId,
-                deviceId
-        );
-
-        return new TokenResponse(
-                "Bearer",
-                accessToken,
-                accessTokenTtl.toSeconds(),
-                refreshToken.token(),
-                refreshToken.expiresAt()
-        );
+        return sessionService.issue(authenticated.userId(), request.deviceId(), authenticated.credentialStamp());
     }
 
     private String normalizeEmail(String email) {

@@ -5,6 +5,9 @@ import com.swu.atch.auth.refresh.RefreshTokenService;
 import com.swu.atch.common.exception.BusinessException;
 import com.swu.atch.user.domain.User;
 import com.swu.atch.user.repository.UserRepository;
+import com.swu.atch.auth.domain.AuthAccount;
+import com.swu.atch.auth.repository.AuthAccountRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import com.swu.atch.support.IsolatedAuthIntegrationTest;
@@ -25,11 +28,15 @@ class AuthSessionServiceTest extends IsolatedAuthIntegrationTest {
 
     @Autowired
     private JwtDecoder jwtDecoder;
+    @Autowired private AuthAccountRepository accounts;
+    @Autowired private PasswordEncoder encoder;
+    @Autowired private AccountCredentials credentials;
 
     @Test
     void refreshIssuesTokensAndRejectsReuse() {
         User user = userRepository.save(new User("테스트사용자"));
-        var issued = refreshTokenService.create(user.getId(), "test-device");
+        var account = accounts.save(AuthAccount.local(user, "refresh-test@example.com", encoder.encode("Atch123!")));
+        var issued = refreshTokenService.create(user.getId(), "test-device", credentials.stamp(account));
         String rotatedToken = null;
 
         try {
@@ -64,6 +71,7 @@ class AuthSessionServiceTest extends IsolatedAuthIntegrationTest {
             } else {
                 authSessionService.logout(issued.token());
             }
+            accounts.deleteById(account.getId());
             userRepository.deleteById(user.getId());
         }
     }

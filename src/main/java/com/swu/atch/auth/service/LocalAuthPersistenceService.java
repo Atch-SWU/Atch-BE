@@ -23,17 +23,20 @@ public class LocalAuthPersistenceService {
     private final AuthAccountRepository authAccountRepository;
     private final UserSettingRepository userSettingRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AccountCredentials credentials;
 
     public LocalAuthPersistenceService(
             UserRepository userRepository,
             AuthAccountRepository authAccountRepository,
             UserSettingRepository userSettingRepository,
-            PasswordEncoder passwordEncoder
+            PasswordEncoder passwordEncoder,
+            AccountCredentials credentials
     ) {
         this.userRepository = userRepository;
         this.authAccountRepository = authAccountRepository;
         this.userSettingRepository = userSettingRepository;
         this.passwordEncoder = passwordEncoder;
+        this.credentials = credentials;
     }
 
     // USER·AUTH_ACCOUNT·USER_SETTING을 하나의 트랜잭션에서 생성
@@ -57,15 +60,14 @@ public class LocalAuthPersistenceService {
 
     // 이메일·비밀번호 검증 및 로그인 시각 기록
     @Transactional
-    public Long authenticate(String email, String password) {
-        AuthAccount account = authAccountRepository
-                .findByProviderAndEmailIgnoreCase(
-                        AuthProvider.LOCAL,
-                        email
-                )
-                .orElseThrow(() ->
-                        new BusinessException(ErrorCode.INVALID_CREDENTIALS)
-                );
+    public AuthenticatedAccount authenticate(String email, String password) {
+        Long userId = authAccountRepository.findUserIdByProviderAndEmail(AuthProvider.LOCAL, email)
+                .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
+        userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
+        // 잠금 대기 중 비밀번호가 변경됐을 수 있으므로 최신 행을 다시 읽음
+        AuthAccount account = authAccountRepository.findByUser_IdAndProvider(userId, AuthProvider.LOCAL)
+                .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
 
         if (!passwordEncoder.matches(
                 password,
@@ -76,6 +78,8 @@ public class LocalAuthPersistenceService {
 
         account.recordLogin();
 
-        return account.getUser().getId();
+        return new AuthenticatedAccount(userId, credentials.stamp(account));
     }
+
+    public record AuthenticatedAccount(Long userId, String credentialStamp) { }
 }
