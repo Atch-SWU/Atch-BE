@@ -201,7 +201,7 @@ class TodoRepositoryTest {
     @Autowired private RewardGrantRepository grantRepository;
 
     @Test
-    void migratesV1ThroughV12AndValidatesJpaOnTheContainer() throws SQLException {
+    void migratesV1ThroughV13AndValidatesJpaOnTheContainer() throws SQLException {
         assertThat(flyway.getConfiguration().getDataSource()).isSameAs(dataSource);
         try (var connection = dataSource.getConnection()) {
             assertThat(connection.getMetaData().getURL()).isEqualTo(POSTGRES.getJdbcUrl());
@@ -209,21 +209,21 @@ class TodoRepositoryTest {
         }
         assertThat(Arrays.stream(flyway.info().applied())
                 .map(MigrationInfo::getVersion)
-                .map(Object::toString).toList()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
+                .map(Object::toString).toList()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13");
         flyway.validate();
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history ORDER BY installed_rank", String.class))
-                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
+                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13");
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM flyway_schema_history WHERE success AND checksum IS NOT NULL
-                """, Long.class)).isEqualTo(12L);
+                """, Long.class)).isEqualTo(13L);
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM pg_extension WHERE extname = 'vector'", Long.class
         )).isEqualTo(1L);
         assertThat(entityManager.getEntityManagerFactory().getProperties())
                 .containsEntry("hibernate.hbm2ddl.auto", "validate");
-        System.out.println("V12 JPA: database=atch_todo_test; container=" + POSTGRES.getContainerId()
+        System.out.println("V13 JPA: database=atch_todo_test; container=" + POSTGRES.getContainerId()
                 + "; PostgreSQL=" + jdbc.queryForObject("SHOW server_version", String.class)
                 + "; vector=" + jdbc.queryForObject(
                 "SELECT extversion FROM pg_extension WHERE extname='vector'", String.class));
@@ -583,11 +583,11 @@ class TodoRepositoryTest {
                     .toList();
             assertThat(actual).as(table).containsExactlyInAnyOrder(columns.split(",(?=[a-z_]+:)"));
         });
-        assertThat(entityManager.getMetamodel().getEntities()).hasSize(18);
+        assertThat(entityManager.getMetamodel().getEntities()).hasSize(21);
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM information_schema.columns
                 WHERE table_schema='public' AND is_identity='YES'
-                """, Long.class)).isEqualTo(15);
+                """, Long.class)).isEqualTo(18);
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
                 WHERE n.nspname='public' AND c.contype='f' AND c.confdeltype='a'
@@ -613,10 +613,12 @@ class TodoRepositoryTest {
                 "user_equipped_items.character_item_id->character_items.id", "reward_settlements.user_id->users.id",
                 "reward_grants.user_id->users.id", "reward_grants.character_item_id->character_items.id",
                 "reward_grants.user_id->reward_settlements.user_id",
+                "ai_drafts.user_id->users.id", "ai_drafts.todo_id->todos.id", "ai_drafts.parent_id->ai_drafts.id",
+                "ai_operations.draft_id->ai_drafts.id", "ai_creation_requests.user_id->users.id", "ai_creation_requests.draft_id->ai_drafts.id",
                 "timer_switch_requests.user_id->users.id", "timer_switch_requests.source_todo_id->todos.id",
                 "timer_switch_requests.target_todo_id->todos.id", "timer_switch_requests.source_session_id->sessions.id",
                 "timer_switch_requests.started_session_id->sessions.id", "user_daily_settlement_states.user_id->users.id");
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.contype='f' AND c.confdeltype='c'",Long.class)).isEqualTo(6);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.contype='f' AND c.confdeltype='c'",Long.class)).isEqualTo(12);
         assertThat(jdbc.queryForObject("""
                 SELECT pg_get_constraintdef(oid) FROM pg_constraint
                 WHERE conname='fk_recurrence_rules_pattern_owner'
@@ -642,7 +644,7 @@ class TodoRepositoryTest {
         assertThat(jdbc.queryForList("""
                 SELECT conname FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
                 WHERE n.nspname='public' AND c.contype='c'
-                """, String.class)).hasSize(58).contains("ck_daily_settlement_date", "ck_timer_switch_state", "ck_timer_switch_distinct", "ck_timer_switch_time", "ck_timer_switch_started", "ck_auth_accounts_provider", "ck_auth_accounts_fields",
+                """, String.class)).hasSize(68).contains("ck_daily_settlement_date", "ck_timer_switch_state", "ck_timer_switch_distinct", "ck_timer_switch_time", "ck_timer_switch_started", "ck_auth_accounts_provider", "ck_auth_accounts_fields",
                         "ck_repeat_patterns_task_name", "ck_repeat_patterns_frequency",
                         "ck_repeat_patterns_day_of_week", "ck_repeat_patterns_occurrence_count",
                         "ck_repeat_patterns_status", "ck_recurrence_rules_task_name",

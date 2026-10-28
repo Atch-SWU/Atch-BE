@@ -33,6 +33,8 @@ import java.util.Optional;
 @Transactional
 public class TodoService {
     private static final Sort LIST_ORDER = Sort.by("currentScheduleDate", "startAt", "id");
+    private final TodoResponseMapper responseMapper;
+    private final com.swu.atch.ai.service.AiTodoService aiTodos;
     private final TodoRepository todos;
     private final SessionRepository sessions;
     private final UserRepository users;
@@ -43,6 +45,8 @@ public class TodoService {
 
     @Transactional
     public TodoResponse create(Long userId, String stamp, TodoCreateRequest request) {
+        if (request.estimateChoice() != null) return aiTodos.create(userId, stamp, request).todo();
+        if (request.creationRequestId() != null) throw new BusinessException(ErrorCode.INVALID_REQUEST);
         var locked = lockUser(userId, stamp);
         User user = locked.user();
         Instant now = locked.now();
@@ -95,7 +99,9 @@ public class TodoService {
         requirePaused(todo, userId);
         if (todo.getStatus() == TodoStatus.COMPLETED) throw new BusinessException(ErrorCode.TODO_REOPEN_REQUIRED);
         var times = schedule.schedule(request.startDate(), request.startTime(), request.dueDate(), request.dueTime(), request.allDay());
+        var selection = aiTodos.resolveExisting(userId, stamp, todo, request);
         todo.updateDetails(request.title(), request.memo(), times.startAt(), times.dueAt(), request.allDay(), request.userEstimatedDurationMinutes());
+        if (selection != null) todo.applyEstimateChoice(selection.aiMinutes(), selection.type());
         movePastAssignmentToToday(todo, locked.now());
         todos.flush();
         return toResponse(todo, actualSeconds(todo, userId), locked.now());
@@ -193,16 +199,7 @@ public class TodoService {
 
     // 이미 잠근 Todo를 응답으로 변환한다. 새로운 정산·조회·시각 갱신은 하지 않는다.
     public TodoResponse toResponse(Todo todo, long actualSeconds, Instant now) {
-        boolean completed = todo.getStatus() == TodoStatus.COMPLETED;
-        Integer estimate = todo.getSelectedEstimateType() == SelectedEstimateType.AI
-                ? todo.getAiEstimatedDurationMinutes() : todo.getUserEstimatedDurationMinutes();
-        return new TodoResponse(todo.getId(), todo.getTitle(), todo.getSourceTaskName(), todo.getMemo(),
-                todo.getStartAt(), todo.getDueAt(), todo.getCurrentScheduleDate(), todo.isAllDay(), todo.getStatus(), todo.getCompletedAt(),
-                todo.getUserEstimatedDurationMinutes(), todo.getUserEstimateSource(), todo.getAiEstimatedDurationMinutes(),
-                todo.getSelectedEstimateType(), estimate, actualSeconds, !completed && !now.isBefore(todo.getDueAt()),
-                todo.getCurrentScheduleDate().isAfter(schedule.seoulDate(todo.getStartAt())),
-                todo.getRecurrenceRuleId(), todo.getRecurrenceOccurrenceAt(), todo.getRecurrencePeriodStartDate(),
-                todo.getCreatedAt(), todo.getUpdatedAt());
+        return responseMapper.toResponse(todo, actualSeconds, now);
     }
 
     private record LockedUser(User user, Instant now) { }

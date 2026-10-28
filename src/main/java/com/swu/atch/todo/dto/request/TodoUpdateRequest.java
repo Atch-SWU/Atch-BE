@@ -43,6 +43,11 @@ public record TodoUpdateRequest(
         @NotNull(message = "사용자 예상시간은 필수입니다.")
         @Positive(message = "사용자 예상시간은 0보다 커야 합니다.")
         @Schema(description = "예상시간(분). 반복 기본값을 직접 변경하면 USER_INPUT으로 전환", example = "45", requiredMode = Schema.RequiredMode.REQUIRED)
-        Integer userEstimatedDurationMinutes
+        Integer userEstimatedDurationMinutes,
+        @jakarta.validation.Valid EstimateChoiceRequest estimateChoice
 ) {
+    public TodoUpdateRequest(String title, String memo, LocalDate startDate, LocalTime startTime,
+            LocalDate dueDate, LocalTime dueTime, Boolean allDay, Integer userEstimatedDurationMinutes) {
+        this(title, memo, startDate, startTime, dueDate, dueTime, allDay, userEstimatedDurationMinutes, null);
+    }
 }

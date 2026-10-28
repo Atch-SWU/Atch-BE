@@ -42,7 +42,13 @@ public record TodoCreateRequest(
 
         @NotNull(message = "사용자 예상시간은 필수입니다.")
         @Positive(message = "사용자 예상시간은 0보다 커야 합니다.")
-        @Schema(description = "사용자 예상시간(분). USER_INPUT·USER로 생성하며 임의의 AI 예상값은 받지 않음", example = "30", requiredMode = Schema.RequiredMode.REQUIRED)
-        Integer userEstimatedDurationMinutes
+        @Schema(description = "사용자 예상시간(분). 원본 입력 분을 USER_INPUT으로 보존. AI 예상값은 제안 토큰으로 검증하며 직접 받지 않음", example = "30", requiredMode = Schema.RequiredMode.REQUIRED)
+        Integer userEstimatedDurationMinutes,
+        @jakarta.validation.Valid EstimateChoiceRequest estimateChoice,
+        java.util.UUID creationRequestId
 ) {
+    public TodoCreateRequest(String title, String memo, LocalDate startDate, LocalTime startTime,
+            LocalDate dueDate, LocalTime dueTime, Boolean allDay, Integer userEstimatedDurationMinutes) {
+        this(title, memo, startDate, startTime, dueDate, dueTime, allDay, userEstimatedDurationMinutes, null, null);
+    }
 }

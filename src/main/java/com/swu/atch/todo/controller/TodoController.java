@@ -48,6 +48,7 @@ import java.net.URI;
 })
 public class TodoController {
     private final TodoService service;
+    private final com.swu.atch.ai.service.AiTodoService aiTodos;
     private static final String TIMED_EXAMPLE = """
             {"title":"TODO API 설계","memo":null,"startDate":"2026-10-29","startTime":"09:00:00",
              "dueDate":"2026-10-29","dueTime":"10:00:00","allDay":false,"userEstimatedDurationMinutes":30}
@@ -63,11 +64,13 @@ public class TodoController {
             일반 Todo를 USER_INPUT·USER·PENDING으로 생성하고 currentScheduleDate=startDate로 배정합니다.
             신규 시작 날짜는 서울 기준 오늘 이후이며 오늘의 지난 시각은 허용합니다. 시각 지정은 마감>시작이어야 합니다. 미완료 Todo의 마감 초과는 마감에 도달한 시각부터 판정합니다.
             allDay=true는 같은 시작/마감 날짜와 null 시각을 입력하며 서울 기준 시각 00:00부터 다음 날 00:00 미만입니다.
-            userId·상태·반복 식별값·AI 예상값은 입력하지 않습니다. 응답 유실 시 목록을 확인한 뒤 재시도합니다.
+            userId·상태·반복 식별값·AI 예상값은 입력하지 않습니다. AI 초안 연결 시 creationRequestId와 estimateChoice를 전달합니다. 동일 생성 요청은 기존 응답을 200으로 반환합니다. 일반 생성의 응답 유실은 목록으로 확인합니다.
             """)
     @ApiResponse(responseCode = "201", description = "생성된 Todo",
             headers = @Header(name = "Location", description = "생성 리소스 /api/v1/todos/{todoId}", schema = @Schema(type = "string")),
             content = @Content(schema = @Schema(implementation = TodoResponse.class)))
+    @ApiResponse(responseCode = "200", description = "동일 AI 생성 요청의 보존 결과", content = @Content(schema = @Schema(implementation = TodoResponse.class)))
+    @ApiResponse(responseCode = "409", description = "초안·요청·제안 충돌", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public ResponseEntity<TodoResponse> create(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
@@ -75,6 +78,11 @@ public class TodoController {
                             examples = {@ExampleObject(name = "시각 지정", value = TIMED_EXAMPLE), @ExampleObject(name = "하루종일", value = ALL_DAY_EXAMPLE)}))
             @Valid @RequestBody TodoCreateRequest request
     ) {
+        if (request.estimateChoice() != null) {
+            var result = aiTodos.create(id(jwt), stamp(jwt), request);
+            return ResponseEntity.status(result.replayed() ? 200 : 201)
+                    .header("Location", "/api/v1/todos/" + result.todo().id()).body(result.todo());
+        }
         TodoResponse result = service.create(id(jwt), stamp(jwt), request);
         return ResponseEntity.created(URI.create("/api/v1/todos/" + result.id())).body(result);
     }
@@ -133,7 +141,7 @@ public class TodoController {
             제목·메모만 수정하면 이월된 배정 날짜를 유지하고, 시작 날짜를 실제 변경할 때만 재배정합니다. 과거 날짜로 수정해도 현재 배정 날짜는 서울 오늘보다 과거로 되돌리지 않습니다.
             반복 규칙·불변 회차 식별값은 유지합니다. 사용자 예상시간을 직접 변경하면 출처를 USER_INPUT으로 바꿉니다.
             예측 입력(작업명·메모·사용자 예상시간)이 변경되면 AI 예상값·선택을 무효화하고 사용자 예상시간을 사용합니다.
-            기존 Session·Snapshot·실험 이력은 보존합니다. AI·반복 API 자체는 별도 단계입니다.
+            기존 Session·Snapshot·실험 이력은 보존합니다. estimateChoice를 전달하면 본인 초안·입력·제안 토큰을 검증하고 USER 또는 AI를 선택합니다.
             """)
     @ApiResponse(responseCode = "200", description = "수정된 Todo", content = @Content(schema = @Schema(implementation = TodoResponse.class)))
     @ApiResponse(responseCode = "404", description = "본인 활성 Todo 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

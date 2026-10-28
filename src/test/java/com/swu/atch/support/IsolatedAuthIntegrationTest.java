@@ -87,7 +87,7 @@ public abstract class IsolatedAuthIntegrationTest {
         assertThat(redisConnectionFactory.getHostName()).isEqualTo(redis.getHost());
         assertThat(redisConnectionFactory.getPort()).isEqualTo(redis.getMappedPort(6379));
         assertThat(redisConnectionFactory.getDatabase()).isZero();
-        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("12");
+        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("13");
         assertThat(context.containsBean("anthropicClient")).isFalse();
         assertThat(context.containsBean("claudeApiClient")).isFalse();
     }

@@ -41,7 +41,7 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 
-// AI Service·횟수 제한·외부 호출 성공이 아닌 DTO·문서·인증 계약만 검증한다.
+// 공개 DTO·인증·실제 Service 연결과 OpenAPI를 검증한다. 제공자는 기본 비활성이다.
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
 @TestPropertySource(properties = {"springdoc.api-docs.enabled=true", "app.api.contracts.enabled=true"})
 @Transactional
@@ -79,15 +79,16 @@ class AiApiContractTest extends IsolatedAuthIntegrationTest {
 
     @ParameterizedTest
     @MethodSource("routes")
-    void validRequestsRequireAuthenticationAndReachOnly501(String method, String path, Map<String, Object> body) throws Exception {
+    void validRequestsRequireAuthenticationAndReachImplementedServices(String method, String path, Map<String, Object> body) throws Exception {
         var request = request(HttpMethod.valueOf(method), path);
         if (body != null) request.contentType("application/json").content(json.writeValueAsString(body));
         assertThat(mvc.perform(request).andReturn().getResponse().getStatus()).isEqualTo(401);
         var authenticated = request(HttpMethod.valueOf(method), path).header("Authorization", "Bearer " + accessToken);
         if (body != null) authenticated.contentType("application/json").content(json.writeValueAsString(body));
         var response = mvc.perform(authenticated).andReturn().getResponse();
-        assertThat(response.getStatus()).isEqualTo(501);
-        assertThat(json.readTree(response.getContentAsString()).path("code").asText()).isEqualTo("NOT_IMPLEMENTED");
+        int expected = path.equals("/api/v1/ai/drafts") ? 201
+                : path.contains("profile") || path.endsWith("similar-todos") ? 200 : 404;
+        assertThat(response.getStatus()).isEqualTo(expected);
     }
 
     static Stream<Arguments> invalidRequests() {
@@ -146,11 +147,11 @@ class AiApiContractTest extends IsolatedAuthIntegrationTest {
     void taskDescriptionIsOptionalShortTextAndNotAWorkloadOrTimeField() throws Exception {
         var body = decomposition();
         body.put("taskDescription", "발표에서 문제와 해결 방향을 설명할 기획안");
-        assertThat(postBody("/api/v1/ai/task-decompositions", body).getStatus()).isEqualTo(501);
+        assertThat(postBody("/api/v1/ai/task-decompositions", body).getStatus()).isEqualTo(404);
         body.put("taskDescription", "가".repeat(201));
         assertThat(postBody("/api/v1/ai/task-decompositions", body).getStatus()).isEqualTo(400);
         body.remove("taskDescription");
-        assertThat(postBody("/api/v1/ai/task-decompositions", body).getStatus()).isEqualTo(501);
+        assertThat(postBody("/api/v1/ai/task-decompositions", body).getStatus()).isEqualTo(404);
     }
 
     @Test
@@ -201,7 +202,7 @@ class AiApiContractTest extends IsolatedAuthIntegrationTest {
     }
 
     @Test
-    void everyBodyHasUsableOpenApiExamplesAndContractsAreClearlyUnimplemented() throws Exception {
+    void everyBodyHasUsableOpenApiExamplesAndImplementedContracts() throws Exception {
         var response = mvc.perform(get("/v3/api-docs")).andReturn().getResponse();
         assertThat(response.getStatus()).isEqualTo(200);
         var api = json.readTree(response.getContentAsString());
@@ -224,8 +225,8 @@ class AiApiContractTest extends IsolatedAuthIntegrationTest {
             var args = arguments.get();
             var operation = api.path("paths").path((String) args[1]).path(((String) args[0]).toLowerCase());
             assertThat(operation.path("security").toString()).contains("bearerAuth");
-            assertThat(operation.path("description").asText()).contains("현재 501");
-            assertThat(operation.path("responses").has("501")).isTrue();
+            assertThat(operation.path("description").asText()).doesNotContain("현재 501");
+            assertThat(operation.path("responses").has("501")).isFalse();
             assertThat(operation.path("parameters").toString()).doesNotContain("\"name\":\"jwt\"");
         }
         var schemas = api.path("components").path("schemas");
@@ -239,7 +240,7 @@ class AiApiContractTest extends IsolatedAuthIntegrationTest {
         assertThat(oneTime.path("description").asText()).contains("성공", "1회", "Baseline");
         assertThat(oneTime.path("responses").has("409")).isTrue();
         assertThat(api.path("paths").path("/api/v1/todos").path("post").path("responses").has("501")).isFalse();
-        var evidence = Path.of("build/verification/core-api-contract-openapi.json");
+        var evidence = Path.of("build/verification/ai-20261029/openapi.json");
         Files.createDirectories(evidence.getParent());
         Files.writeString(evidence, response.getContentAsString());
     }
@@ -261,7 +262,7 @@ class AiApiContractTest extends IsolatedAuthIntegrationTest {
                 aiMinutes, aiMinutes / (userMinutes * 1.5), TimePredictionResult.Mode.HYBRID,
                 TimePredictionResult.ClaudeStatus.APPLIED, SimilarTodoSearchResponse.VoyageStatus.AVAILABLE,
                 List.of(PredictionReasonCode.BASELINE_RETAINED), List.of(),
-                new AiUsageResponse(AiUsageResponse.State.SUCCEEDED, false, at, true), true, at);
+                new AiUsageResponse(AiUsageResponse.State.SUCCEEDED, false, at, true), true, at, null);
     }
 
     private org.springframework.mock.web.MockHttpServletResponse postBody(String path, Map<String, Object> body) throws Exception {

@@ -7,6 +7,14 @@ import org.springframework.http.HttpStatus;
 // 도메인별 상세 에러코드 추후 확장
 public enum ErrorCode {
 
+    AI_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "AI 저장소를 사용할 수 없습니다."),
+    AI_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "AI 요청 한도를 초과했습니다."),
+    AI_IN_PROGRESS(HttpStatus.CONFLICT, "AI 요청이 진행 중입니다."),
+    AI_ALREADY_USED(HttpStatus.CONFLICT, "이 작업은 해당 AI 기능을 이미 사용했습니다."),
+    AI_OFFER_INVALID(HttpStatus.CONFLICT, "AI 제안이 만료되었거나 현재 입력과 다릅니다."),
+    AI_FEATURE_DISABLED(HttpStatus.SERVICE_UNAVAILABLE, "작업 분해 기능이 비활성화되어 있습니다."),
+    AI_DECOMPOSITION_FAILED(HttpStatus.BAD_GATEWAY, "세부 작업 분해에 실패했습니다."),
+    AI_DECOMPOSITION_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "세부 작업 분해 응답 시간이 초과되었습니다."),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "잘못된 요청입니다."),
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "입력값이 올바르지 않습니다."),
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다."),
