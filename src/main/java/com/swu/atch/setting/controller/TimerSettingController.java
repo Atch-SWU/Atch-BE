@@ -36,7 +36,7 @@ public class TimerSettingController {
     private final TimerSettingService service;
 
     @GetMapping(value = "/settings/timer", produces = "application/json")
-    @Operation(summary = "타이머 설정 조회", description = "반복 추천 설정과 분리합니다. 기존 기본값은 전환 제한 활성·대기 10분입니다.")
+    @Operation(summary = "작업 전환 제한 설정 조회", description = "반복 추천 설정과 분리합니다. 기존 기본값은 전환 제한 활성·대기 10분입니다.")
     @ApiResponse(responseCode = "200", description = "타이머 설정 조회", content = @Content(schema = @Schema(implementation = TimerSettingsResponse.class)))
     public TimerSettingsResponse get(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt
@@ -45,7 +45,7 @@ public class TimerSettingController {
     }
 
     @PatchMapping(value = "/settings/timer", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "타이머 설정 부분 변경", description = "null 필드는 유지하며 적어도 한 항목이 필요합니다. 대기 분은 양수입니다. 이미 시작한 대기의 readyAt은 바꾸지 않고 새 전환부터 반영합니다.")
+    @Operation(summary = "작업 전환 제한 - 대기 시간 설정 변경", description = "null 필드는 유지하며 적어도 한 항목이 필요합니다. 대기 분은 양수입니다. 이미 시작한 대기의 readyAt은 바꾸지 않고 새 전환부터 반영합니다.")
     @ApiResponse(responseCode = "200", description = "타이머 설정 부분 변경", content = @Content(schema = @Schema(implementation = TimerSettingsResponse.class)))
     public TimerSettingsResponse update(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
