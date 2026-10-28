@@ -18,7 +18,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
-@Tag(name = "회원가입 및 로그인", description = "LOCAL 계정 회원가입·로그인 및 인증 토큰 발급 API")
+@Tag(name = "02. [프론트] 회원가입 · 로그인", description = "로그인 없이 호출하며 성공하면 인증 토큰을 반환합니다.")
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
@@ -33,24 +33,27 @@ public class AuthController {
     @Operation(
             summary = "이메일 회원가입 및 자동 로그인",
             description = """
-                이메일 인증 완료 후 회원가입을 진행하고 자동 로그인합니다.
+            이메일 인증 완료 후 회원가입을 진행하고 자동 로그인합니다.
 
-                정상 처리:
-                - USER·AUTH_ACCOUNT·USER_SETTING 생성
-                - Access Token 및 Refresh Token 반환
-                - 성공 시 로그인 화면을 거치지 않고 앱 진입
+            ### 처리 결과
 
-                예외 처리:
-                - EMAIL_VERIFICATION_REQUIRED: 이메일 재인증 필요
-                - EMAIL_ALREADY_REGISTERED: 기존 계정으로 로그인
-                - SIGNUP_FAILED_REVERIFY: 가입 여부 확인 후 필요하면 이메일 재인증
-                - SIGNUP_COMPLETED_LOGIN_FAILED: 가입 완료, 로그인 화면으로 이동
+            - USER·AUTH_ACCOUNT·USER_SETTING 생성
+            - Access Token 및 Refresh Token 반환
+            - 성공 시 로그인 화면을 거치지 않고 앱 진입
 
-                주의:
-                - 회원가입 요청이 실패했다고 무조건 재전송하지 마세요
-                - Verification Token은 일회용입니다
-                - 응답 자체를 받지 못했다면 가입 성공 여부가 불확실할 수 있습니다
-                """,
+            ### 오류 시 화면 처리
+
+            - EMAIL_VERIFICATION_REQUIRED: 이메일 재인증 필요
+            - EMAIL_ALREADY_REGISTERED: 기존 계정으로 로그인
+            - SIGNUP_FAILED_REVERIFY: 가입 여부 확인 후 필요하면 이메일 재인증
+            - SIGNUP_COMPLETED_LOGIN_FAILED: 가입 완료, 로그인 화면으로 이동
+
+            ### 주의사항
+
+            - 회원가입 요청이 실패했다고 무조건 재전송하지 마세요
+            - Verification Token은 일회용입니다
+            - 응답 자체를 받지 못했다면 가입 성공 여부가 불확실할 수 있습니다
+            """,
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
                     content = @Content(mediaType = "application/json",
@@ -94,15 +97,15 @@ public class AuthController {
     @Operation(
             summary = "이메일 로그인",
             description = """
-                    가입된 LOCAL 계정의 이메일과 비밀번호를 검증합니다.
+            가입된 LOCAL 계정의 이메일과 비밀번호를 검증합니다.
 
-                    - 로그인 불필요
-                    - 이메일 또는 비밀번호 불일치 시 동일한 오류 응답 반환
-                    - 로그인 성공 시 마지막 로그인 시각 갱신
-                    - Access Token 15분 및 Refresh Token 14일 발급
-                    - accessToken은 API Authorization 헤더에 Bearer 방식으로 사용
-                    - refreshToken은 iOS Keychain에 저장하고 추후 토큰 갱신 시 사용
-                    """,
+            - 로그인 불필요
+            - 이메일 또는 비밀번호 불일치 시 동일한 오류 응답 반환
+            - 로그인 성공 시 마지막 로그인 시각 갱신
+            - Access Token 15분 및 Refresh Token 14일 발급
+            - accessToken은 API Authorization 헤더에 Bearer 방식으로 사용
+            - refreshToken은 iOS Keychain에 저장하고 추후 토큰 갱신 시 사용
+            """,
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
                     content = @Content(mediaType = "application/json",

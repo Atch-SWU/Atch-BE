@@ -25,7 +25,7 @@ import com.swu.atch.setting.dto.response.TimerSettingsResponse;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-@Tag(name = "타이머 설정", description = "FR-SETTING-001 및 FR-SESS-013")
+@Tag(name = "08. [프론트] 작업 전환 제한 설정", description = "다른 작업으로 전환할 때의 제한 여부와 대기 시간을 설정합니다.")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "필수값·형식·범위·관계 검증 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -36,7 +36,13 @@ public class TimerSettingController {
     private final TimerSettingService service;
 
     @GetMapping(value = "/settings/timer", produces = "application/json")
-    @Operation(summary = "작업 전환 제한 설정 조회", description = "반복 추천 설정과 분리합니다. 기존 기본값은 전환 제한 활성·대기 10분입니다.")
+    @Operation(summary = "작업 전환 제한 설정 조회", description = """
+            작업 전환 제한 설정 화면을 열 때 호출합니다.
+
+            - `taskSwitchRestrictionEnabled`: 전환 제한 사용 여부입니다.
+            - `taskSwitchWaitMinutes`: 전환 대기 시간(분)입니다.
+            - 기본값은 제한 사용·10분입니다. 반복 추천 설정과는 별개입니다.
+            """)
     @ApiResponse(responseCode = "200", description = "타이머 설정 조회", content = @Content(schema = @Schema(implementation = TimerSettingsResponse.class)))
     public TimerSettingsResponse get(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt
@@ -45,7 +51,11 @@ public class TimerSettingController {
     }
 
     @PatchMapping(value = "/settings/timer", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "작업 전환 제한 - 대기 시간 설정 변경", description = "null 필드는 유지하며 적어도 한 항목이 필요합니다. 대기 분은 양수입니다. 이미 시작한 대기의 readyAt은 바꾸지 않고 새 전환부터 반영합니다.")
+    @Operation(summary = "작업 전환 제한·대기 시간 변경", description = """
+            바꿀 필드만 보냅니다. null이거나 생략한 필드는 기존 값을 유지하며 적어도 한 필드는 필요합니다.
+
+            대기 시간은 0보다 큰 분 단위 정수입니다. 변경 사항은 새 전환 요청부터 적용되며 이미 시작한 대기의 `readyAt`은 바뀌지 않습니다.
+            """)
     @ApiResponse(responseCode = "200", description = "타이머 설정 부분 변경", content = @Content(schema = @Schema(implementation = TimerSettingsResponse.class)))
     public TimerSettingsResponse update(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,

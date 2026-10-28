@@ -25,7 +25,7 @@ import com.swu.atch.ai.dto.response.SimilarTodoSearchResponse;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-@Tag(name = "유사 작업 검색", description = "Voyage·VECTOR(1024) 저장 구조는 기존 데이터 계층 재사용")
+@Tag(name = "13. [선택 조회] 유사한 완료 투두", description = "유사 작업 목록을 별도 화면에 표시할 때 호출합니다. 시간 예측 전에 호출할 필요는 없습니다.")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "필수값·형식·단일 필드 범위 오류. 관계·상태는 Service에서 검증", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -36,7 +36,20 @@ public class SimilarTodoController {
     private final SimilarTodoService similar;
 
     @PostMapping(value = "/ai/similar-todos", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "본인 유사 완료 작업 검색", description = "본인 유효 완료·미삭제·기준 시각 이전 기록 중 현재 모델·1024차원·원문 해시가 일치하는 최대3개를 Exact Search로 찾습니다. stale 벡터는 LIMIT 전에 제외합니다. 자기 자신과 타인 데이터는 제외합니다. 외부 색인 호출은 완료 트랜잭션 밖에서 처리하고 색인 일부 준비·미활성·실패를 기록 없음과 구분합니다. 이 독립 검색에도 별도 사용자별 호출 제한을 둡니다.")
+    @Operation(summary = "본인의 유사한 완료 투두 검색 — 선택 호출", description = """
+            ### 호출 대상
+            유사한 과거 작업을 별도 화면에 보여줄 때 프론트가 선택적으로 호출할 수 있습니다. 서버 전용 API가 아닙니다.
+
+            ### 입력·응답
+
+            - 현재 태스크명과 선택적인 원본 태스크명·메모를 보냅니다.
+            - 본인의 유효한 완료 작업 중 유사한 항목을 최대 3개 반환합니다. 타인 데이터는 포함하지 않습니다.
+            - `voyageStatus`: AVAILABLE=검색 가능, PARTIAL=일부 기록만 검색 준비됨, NO_HISTORY=유효 이력 없음, DISABLED=기능 비활성, UNAVAILABLE=검색 이용 불가입니다.
+            - 결과가 빈 배열이어도 이력 없음과 검색 장애를 같은 의미로 표시하지 않습니다.
+
+            ### 시간 예측과의 관계
+            시간 예측 API가 내부에서 유사 검색을 수행하므로 미리 호출할 필요가 없습니다. 독립 검색에는 사용자별 별도 호출 제한이 있습니다.
+            """)
     @ApiResponse(responseCode = "200", description = "본인 유사 완료 작업 검색", content = @Content(schema = @Schema(implementation = SimilarTodoSearchResponse.class)))
     @ApiResponse(responseCode = "429", description = "사용자별 외부 호출 제한. 재시도 시각은 Retry-After", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public SimilarTodoSearchResponse search(

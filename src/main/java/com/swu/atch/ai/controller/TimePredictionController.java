@@ -25,7 +25,7 @@ import com.swu.atch.ai.dto.response.*;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-@Tag(name = "AI 시간 예측", description = "FR-AI-001~006. 작업당 성공1회, 실패·Baseline 폴백은 재시도 가능")
+@Tag(name = "10. [프론트] AI 시간 예측", description = "AI 초안 발급 → 사용자 예상시간 입력 → 시간 보정 제안 → 투두 저장 순서입니다.")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "필수값·형식·단일 필드 범위 오류. 관계·상태는 Service에서 검증", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -37,7 +37,23 @@ public class TimePredictionController {
     private final AiDraftService drafts;
 
     @PostMapping(value = "/ai/drafts", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "AI 작업 초안 식별자 발급", description = "저장 전 신규 작업·수동 추가 세부 작업에 서버 draftId를 발급합니다. 기존 todoId는 본인 소유와 영속 사용 이력에 연결합니다. 분해는 생성 단계 전용이며 기존 Todo는 NOT_APPLICABLE입니다. 임의 새 식별자로 기존 Todo의 성공 횟수를 초기화하지 않습니다. 초안 발급에도 별도 사용자별 제한을 적용합니다. 임시 결과 만료와 성공 사용 이력 보존은 구분하며 성공 이력과 생성 요청은 DB에 보존합니다.")
+    @Operation(summary = "AI 작업 초안 발급", description = """
+            ### 언제 호출하나요?
+            AI 기능을 사용할 작업의 식별자가 필요할 때 호출합니다. 아직 투두를 저장하지 않습니다.
+
+            | 상황 | 요청 본문 |
+            |---|---|
+            | 저장 전 새 작업 | `{}` |
+            | 저장된 본인 투두의 시간 예측 | `{"todoId": 1}` |
+            | 분해 후 사용자가 직접 추가한 세부 작업 | `{"parentDraftId": "원본 decompositionDraftId"}` |
+
+            ### 응답 후 처리
+
+            - 받은 `draftId`를 해당 작업의 편집·예측·저장 과정에서 계속 사용합니다.
+            - 기존 투두는 같은 작업의 사용 이력에 연결됩니다. 새 초안을 받아도 성공 횟수가 초기화되지 않습니다.
+            - 기존 투두의 세부 분량 나누기는 지원하지 않습니다(`NOT_APPLICABLE`).
+            - 초안 발급에는 사용자별 호출 제한이 적용됩니다. 임시 결과가 만료되어도 성공 사용 이력은 유지됩니다.
+            """)
     @ApiResponse(responseCode = "201", description = "AI 작업 초안 식별자 발급", content = @Content(schema = @Schema(implementation = AiDraftResponse.class)))
     @ApiResponse(responseCode = "429", description = "사용자별 외부 호출 제한. 재시도 시각은 Retry-After", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ResponseStatus(HttpStatus.CREATED)
@@ -52,7 +68,21 @@ public class TimePredictionController {
     }
 
     @PostMapping(value = "/ai/time-predictions", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "작업 시간 보정 제안", description = "사용자 입력 분×개인화 계수=Baseline, Claude는 유한한 0.75~1.40 맥락 계수·기존 이유 코드만 제공합니다. 최종 분은 서버에서 반올림·양수 범위를 보장합니다. 동일 draft/Todo의 Claude 구조화 보정 성공은1회만 소비합니다. 동일 입력 재요청은 보존 결과를 반환하고 다른 입력은409이며 편집·거절·토큰 만료로 초기화하지 않습니다. 실패·잘림·형식 오류·미활성·Baseline 폴백은 성공을 소비하지 않습니다. 제안 토큰은10분이며 동일 성공 결과에 대한 재발급은 외부 재호출과 구분합니다. 일반 Todo 생성·수정은 외부 실패와 독립입니다. 횟수·예약·결과는 DB에 보존합니다.")
+    @Operation(summary = "사용자 예상시간에 대한 AI 보정 제안", description = """
+            ### 호출 순서
+            1. `/api/v1/ai/drafts`에서 `draftId`를 받습니다.
+            2. 태스크명과 사용자가 직접 입력한 예상 작업 소요시간(분)을 보냅니다.
+            3. 응답의 `aiEstimatedDurationMinutes`를 직접 입력시간과 함께 표시합니다.
+            4. 사용자 선택 후 투두 생성·수정 API에 `estimateChoice`를 보냅니다. AI 선택 시 `predictionToken`이 필수입니다.
+
+            ### 실패·재요청 처리
+
+            - HTTP 200이어도 `mode=STATISTICAL_BASELINE`이면 Claude 대신 개인화 통계로 계산한 대체 제안입니다. `claudeStatus`도 함께 확인합니다.
+            - 작업별 Claude 보정 성공은 1회입니다. 같은 입력의 재요청은 보존 결과를 돌려주며 다른 입력은 409입니다.
+            - 편집·거절·토큰 만료로 성공 횟수가 초기화되지 않습니다. 실패·비활성·대체 결과는 성공 횟수를 사용하지 않습니다.
+            - 제안 토큰은 10분 유효합니다. 같은 성공 결과를 다시 요청하면 외부 AI 호출 없이 토큰을 재발급합니다.
+            - AI를 사용하지 않아도 일반 투두를 저장할 수 있습니다. 프로필 재계산·유사 검색은 서버가 처리하므로 선행 호출할 필요가 없습니다.
+            """)
     @ApiResponse(responseCode = "200", description = "작업 시간 보정 제안", content = @Content(schema = @Schema(implementation = TimePredictionResponse.class)))
     @ApiResponse(responseCode = "409", description = "AI 호출 진행 중·이미 성공한 작업의 다른 입력·만료 또는 입력이 다른 제안", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "429", description = "사용자별 외부 호출 제한. 재시도 시각은 Retry-After", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -67,7 +97,20 @@ public class TimePredictionController {
     }
 
     @PostMapping(value = "/ai/time-predictions/batch", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "세부 작업별 시간 보정 제안", description = "모든 세부 시간 입력 후 요청합니다. 작업별 사용자 입력시간을 보존하고 각각의 Baseline·맥락 계수로 보정하며 합계는 서버가 계산합니다. 같은 사용자·원본 초안에 속한 중복 없는 세부 draftId를 확인합니다. 각 작업마다 성공1회 정책을 적용하고 이미 성공한 항목은 동일 입력이면 재사용합니다. 실패 항목만 재시도할 수 있으며 묶음 요청으로 제한을 우회할 수 없습니다. AI가 직접 전체 시간을 정하거나 합계 시간을 비율로 분배하지 않습니다. 외부 요청 중 DB 트랜잭션·사용자 잠금을 유지하지 않습니다.")
+    @Operation(summary = "세부 작업별 AI 시간 보정 제안", description = """
+            ### 언제 호출하나요?
+            AI 세부 분량 나누기 결과를 편집하고 각 작업의 예상시간을 직접 입력한 뒤 호출합니다.
+
+            ### 입력·응답
+
+            - `decompositionDraftId`: 원본 분해 초안 ID입니다.
+            - `tasks`: 같은 분해 결과에 속한 세부 작업들의 `draftId`·태스크명·직접 입력시간입니다. 중복 ID는 허용하지 않습니다.
+            - 서버가 각 작업의 시간을 개별 보정하고 합계를 계산합니다. 전체 시간을 일정 비율로 나누지 않습니다.
+            - 최종 저장 시 이 응답의 묶음 `predictionToken`을 사용합니다.
+
+            ### 재요청
+            각 작업에 성공 1회 제한을 적용합니다. 이미 성공한 작업은 같은 입력이면 재사용하며 실패 항목은 재시도할 수 있습니다. `predictions`의 작업별 상태를 확인합니다.
+            """)
     @ApiResponse(responseCode = "200", description = "세부 작업별 시간 보정 제안", content = @Content(schema = @Schema(implementation = TimePredictionBatchResponse.class)))
     @ApiResponse(responseCode = "409", description = "AI 호출 진행 중·이미 성공한 작업의 다른 입력·만료 또는 입력이 다른 제안", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "429", description = "사용자별 외부 호출 제한. 재시도 시각은 Retry-After", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

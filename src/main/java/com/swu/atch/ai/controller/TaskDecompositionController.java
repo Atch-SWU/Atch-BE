@@ -25,7 +25,7 @@ import com.swu.atch.ai.dto.response.*;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-@Tag(name = "AI 세부 작업", description = "FR-AI-007~013. 선택 작업 내용·시간 직접 입력·최종 승인 후 저장")
+@Tag(name = "11. [프론트] AI 세부 분량 나누기", description = "세부 작업 제안 → 편집·시간 입력 → 선택적 시간 예측 → 최종 승인 저장 순서입니다.")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "필수값·형식·단일 필드 범위 오류. 관계·상태는 Service에서 검증", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -37,7 +37,22 @@ public class TaskDecompositionController {
     private final AiTodoService aiTodos;
 
     @PostMapping(value = "/ai/task-decompositions", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "세부 작업 이름·순서 제안", description = "작업명·선택적인 짧은 한 줄 작업 내용(taskDescription)·기간·메모를 활용합니다. 분량 전용 필드가 아닙니다. 시간 초깃값 없이 이름·순서·세부 draftId만 반환합니다. 원본 초안의 성공 분해는1회이며 동일 요청은 보존 결과, 다른 입력은409입니다. 실패는 성공을 소비하지 않습니다. 결과는 편집·추가·삭제 가능하며 수동 추가 항목은 /ai/drafts에서 식별자를 받습니다. 아직 Todo를 저장하지 않고 실패·미사용 시 일반 Todo를 만들 수 있습니다.")
+    @Operation(summary = "AI 세부 분량 나누기 — 작업 제안", description = """
+            ### 호출 순서
+            1. 새 작업의 `draftId`를 발급받습니다.
+            2. 태스크명·일정과 선택 입력인 작업 내용·메모를 보냅니다.
+            3. 응답의 세부 작업 이름·순서를 화면에 표시합니다. 이 단계에서는 투두가 저장되지 않습니다.
+
+            ### 편집 후 다음 단계
+
+            - 사용자가 이름·순서를 수정하고 항목을 추가·삭제할 수 있습니다.
+            - 수동 추가 항목은 `/api/v1/ai/drafts`에 `parentDraftId`를 보내 새 ID를 받습니다.
+            - 시간 초깃값은 제안하지 않습니다. 각 세부 작업의 예상시간은 사용자가 직접 입력합니다.
+            - 필요하면 묶음 시간 예측 후 `/api/v1/todos/decomposed`로 최종 저장합니다.
+
+            ### 제한·실패
+            원본 초안별 성공은 1회입니다. 동일 요청은 보존 결과를 반환하고 다른 입력은 409입니다. 실패는 재시도 가능하며 분해를 사용하지 않고 일반 투두를 만들 수도 있습니다. `taskDescription`은 분량 전용 값이 아닌 선택적인 한 줄 작업 내용입니다.
+            """)
     @ApiResponse(responseCode = "200", description = "세부 작업 이름·순서 제안", content = @Content(schema = @Schema(implementation = TaskDecompositionResponse.class)))
     @ApiResponse(responseCode = "409", description = "AI 호출 진행 중·이미 성공한 작업의 다른 입력·만료 또는 입력이 다른 제안", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "429", description = "사용자별 외부 호출 제한. 재시도 시각은 Retry-After", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -54,7 +69,21 @@ public class TaskDecompositionController {
     }
 
     @PostMapping(value = "/todos/decomposed", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "최종 승인한 세부 Todo 일괄 생성", description = "원본 부모 Todo 없이 확정한1~20개만 하나의 트랜잭션으로 저장하고 sourceTaskName·공통 일정·메모를 복사합니다. 배열 순서는 응답에 유지하지만 별도 영구 정렬 컬럼은 추가하지 않습니다. 직접 입력 합계는 각 작업의 사용자 분 합계입니다. USER 선택은 입력 분, AI 선택은 해당 작업별 서버 제안 분을 적용하고 사용자 분을 덮어쓰지 않습니다. estimateChoice 생략은 USER입니다. 유효한 USER 선택 토큰은 거절한 AI 값도 보존합니다. AI 토큰의 소유·입력·10분 유효기간을 확인합니다. 서버가 직접 초를 입력받거나 AI 재호출하지 않습니다. 같은 creationRequestId·같은 본문은 기존 결과, 다른 본문은409입니다. 원자 저장·영속 재전송 검증을 적용합니다.")
+    @Operation(summary = "최종 승인한 세부 투두 일괄 저장", description = """
+            ### 언제 호출하나요?
+            세부 작업 편집·개별 예상시간 입력·AI 제안 수락 여부를 모두 확정한 뒤 한 번 호출합니다.
+
+            ### 저장할 내용
+
+            - `tasks`에 확정한 1~20개만 보냅니다. 원본 부모 투두는 생성하지 않습니다.
+            - 원본 태스크명·공통 일정·메모를 각 투두에 복사합니다.
+            - `estimateChoice` 생략 또는 USER 선택은 직접 입력시간, AI 선택은 서버 제안시간을 사용합니다. 직접 입력한 원본 시간은 따로 보존합니다.
+            - 묶음의 선택은 전체에 적용됩니다. `estimateChoice.draftId`는 원본 `decompositionDraftId`를 사용합니다.
+            - 응답 배열은 요청 순서를 따르며 별도 영구 정렬 순서를 저장하지는 않습니다.
+
+            ### 중복 저장 방지
+            프론트가 생성한 `creationRequestId`를 보냅니다. 같은 ID·같은 본문 재전송은 기존 결과를 반환하고 다른 본문은 409입니다. 전체가 함께 저장되거나 함께 실패합니다. 이 저장 API는 AI를 다시 호출하지 않습니다.
+            """)
     @ApiResponse(responseCode = "201", description = "최종 승인한 세부 Todo 일괄 생성", content = @Content(schema = @Schema(implementation = DecomposedTodoCreateResponse.class)))
     @ApiResponse(responseCode = "409", description = "AI 호출 진행 중·이미 성공한 작업의 다른 입력·만료 또는 입력이 다른 제안", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "200", description = "동일 생성 요청의 기존 결과", content = @Content(schema = @Schema(implementation = DecomposedTodoCreateResponse.class)))

@@ -1,6 +1,8 @@
 
 package com.swu.atch.auth.service;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import com.swu.atch.common.exception.BusinessException;
 import com.swu.atch.common.exception.ErrorCode;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -207,8 +209,9 @@ public class EmailVerificationService {
     }
 
     public record VerifiedEmail(
+            @Schema(description = "회원가입용 이메일 인증 증명. 회원가입 요청의 verificationToken에 복사합니다. 한 번만 사용할 수 있습니다.")
             String verificationToken,
-            long expiresIn
-    ) {
+            @Schema(description = "이메일 인증 증명의 유효시간(초)입니다.")
+            long expiresIn) {
     }
 }
