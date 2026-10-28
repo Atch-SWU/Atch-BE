@@ -9,12 +9,14 @@ import com.swu.atch.support.IsolatedAuthIntegrationTest;
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Map;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -98,17 +100,22 @@ class RefreshTokenServiceTest extends IsolatedAuthIntegrationTest {
             assertTrue(expectedHash.equals(fields.get("tokenHash")), "Refresh Token 해시가 일치해야 합니다.");
             assertFalse(fields.containsValue(issued.token()));
 
-            // 최초 만료 시각 및 14일 TTL 확인
+            // 발급 시각부터 정확히 14일인지 확인. Mac과 Redis의 시계 차이에 의존하지 않는다.
             assertEquals(
                     String.valueOf(issued.expiresAt().toEpochMilli()),
                     fields.get("absoluteExpiresAt")
             );
+            assertEquals(Duration.ofDays(14).toMillis(),
+                    issued.expiresAt().toEpochMilli() - Long.parseLong(fields.get("issuedAt").toString()));
+            var expirationScript = new DefaultRedisScript<>(
+                    "return redis.call('PEXPIRETIME', KEYS[1])", Long.class);
+            Long expirationBefore = redisTemplate.execute(expirationScript, List.of(key));
+            assertEquals(Long.valueOf(issued.expiresAt().toEpochMilli()), expirationBefore);
 
             Long ttlBefore = redisTemplate.getExpire(key, TimeUnit.MILLISECONDS);
 
             assertNotNull(ttlBefore);
             assertTrue(ttlBefore > 0);
-            assertTrue(ttlBefore <= Duration.ofDays(14).toMillis());
 
             Thread.sleep(100);
 
@@ -120,6 +127,7 @@ class RefreshTokenServiceTest extends IsolatedAuthIntegrationTest {
             assertNotNull(ttlAfter);
             assertTrue(ttlAfter > 0);
             assertTrue(ttlAfter <= ttlBefore);
+            assertEquals(expirationBefore, redisTemplate.execute(expirationScript, List.of(key)));
             assertEquals(issued.expiresAt(), rotated.expiresAt());
 
             // 새 토큰 해시로 교체됐는지 확인
