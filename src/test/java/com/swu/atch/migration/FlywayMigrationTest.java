@@ -18,18 +18,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-// JPA 초기화 전에 데이터를 커밋하고 V3→V9→V10 보존·중단·재실행을 확인
+// JPA 초기화 전에 데이터를 커밋하고 V3→V9→V10→V11 보존·중단·재실행을 확인
 @Testcontainers
 class FlywayMigrationTest {
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
             DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("atch_migration_test")
-            .withLabel("atch.verification", "v10")
+            .withLabel("atch.verification", "v11")
             .withReuse(false);
 
     @Test
-    void preservesV3AndV9DataWhenUpgradingToV10AndDoesNotReapplyMigrations() throws Exception {
+    void preservesExistingDataWhenUpgradingThroughV11AndDoesNotReapplyMigrations() throws Exception {
         var dataSource = new DriverManagerDataSource(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         try (var connection = dataSource.getConnection()) {
@@ -165,7 +165,56 @@ class FlywayMigrationTest {
         assertTrue(afterUpgrade.equals(dataSnapshot(jdbc)), "V10 재실행 시 기존 데이터가 바뀌면 안 됩니다.");
         assertThat(jdbc.queryForMap("SELECT * FROM todos WHERE id=?", todoId))
                 .containsAllEntriesOf(todoBefore).containsEntry("recurrence_period_start_date", null);
-        System.out.println("V3->V9->V10: preserved users/auth/settings/non-recurring todo; "
+        long patternId = jdbc.queryForObject("""
+                INSERT INTO repeat_patterns(user_id, task_name, frequency, scheduled_time,
+                    occurrence_count, status, last_occurrence_date)
+                VALUES (?, 'V10 보존 패턴', 'DAILY', TIME '09:00', 3, 'DETECTING', DATE '2026-10-21')
+                RETURNING id
+                """, Long.class, owner);
+        long ruleId = jdbc.queryForObject("""
+                INSERT INTO recurrence_rules(user_id, source_pattern_id, task_name, frequency,
+                    scheduled_time, default_deadline_offset_minutes, default_user_estimated_duration_minutes, enabled)
+                VALUES (?, ?, 'V10 보존 규칙', 'DAILY', TIME '09:00', 60, 30, true) RETURNING id
+                """, Long.class, owner, patternId);
+        jdbc.update("""
+                INSERT INTO todos(user_id, recurrence_rule_id, recurrence_occurrence_at,
+                    recurrence_period_start_date, title, start_at, due_at, current_schedule_date, all_day,
+                    user_estimated_duration_minutes, user_estimate_source, selected_estimate_type, status)
+                SELECT user_id, ?, start_at, current_schedule_date, 'V10 보존 반복 작업', start_at, due_at,
+                    current_schedule_date, all_day, user_estimated_duration_minutes,
+                    'RECURRENCE_TEMPLATE', selected_estimate_type, status FROM todos WHERE id=?
+                """, ruleId, todoId);
+        var domainBeforeV11 = v10DomainSnapshot(jdbc);
+        Flyway v11 = migration(dataSource, "11");
+        assertThat(v11.getConfiguration().getDataSource()).isSameAs(dataSource);
+        assertThat(v11.migrate().migrationsExecuted).isEqualTo(1);
+        v11.validate();
+        assertThat(v11.info().current().getVersion().toString()).isEqualTo("11");
+        assertThat(v11.info().pending()).isEmpty();
+        assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history ORDER BY installed_rank", String.class))
+                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11");
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM flyway_schema_history WHERE success AND checksum IS NOT NULL
+                """, Long.class)).isEqualTo(11);
+        assertTrue(historyV10.equals(jdbc.queryForList("""
+                SELECT * FROM flyway_schema_history WHERE version <> '11' ORDER BY installed_rank
+                """)), "V11 이후에도 기존 체크섬·순서·적용 시각이 유지되어야 합니다.");
+        assertTrue(afterUpgrade.equals(dataSnapshot(jdbc)), "V11 이후에도 사용자·인증·설정이 보존되어야 합니다.");
+        assertThat(v10DomainSnapshot(jdbc)).isEqualTo(domainBeforeV11);
+        for (String table : List.of("character_items", "user_character_items", "user_equipped_items",
+                "reward_settlements", "reward_grants")) {
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM " + table, Long.class)).isZero();
+        }
+        var historyV11 = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
+        Flyway rerunV11 = migration(dataSource, "11");
+        rerunV11.validate();
+        assertThat(rerunV11.migrate().migrationsExecuted).isZero();
+        assertTrue(historyV11.equals(jdbc.queryForList(
+                "SELECT * FROM flyway_schema_history ORDER BY installed_rank")),
+                "V11 재실행 시 적용 이력이 바뀌면 안 됩니다.");
+        assertTrue(afterUpgrade.equals(dataSnapshot(jdbc)), "V11 재실행 시 사용자·인증·설정이 보존되어야 합니다.");
+        assertThat(v10DomainSnapshot(jdbc)).isEqualTo(domainBeforeV11);
+        System.out.println("V3->V9->V10->V11: preserved users/auth/settings/todos/patterns/rules; "
                 + "legacy recurrence guard verified; rerun migrations=0; "
                 + "database=atch_migration_test; container=" + POSTGRES.getContainerId());
     }
@@ -182,6 +231,12 @@ class FlywayMigrationTest {
                 "users", jdbc.queryForList("SELECT * FROM users ORDER BY id"),
                 "auth", jdbc.queryForList("SELECT * FROM auth_accounts ORDER BY id"),
                 "settings", jdbc.queryForList("SELECT * FROM user_settings ORDER BY user_id"));
+    }
+
+    private Map<String, List<Map<String, Object>>> v10DomainSnapshot(JdbcTemplate jdbc) {
+        return Map.of("todos", jdbc.queryForList("SELECT * FROM todos ORDER BY id"),
+                "patterns", jdbc.queryForList("SELECT * FROM repeat_patterns ORDER BY id"),
+                "rules", jdbc.queryForList("SELECT * FROM recurrence_rules ORDER BY id"));
     }
 
     private void assertDefaults(JdbcTemplate jdbc, long userId) {
