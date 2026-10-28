@@ -61,10 +61,9 @@ public class TodoController {
     @PostMapping(consumes = "application/json", produces = "application/json")
     @Operation(summary = "Todo 생성", description = """
             일반 Todo를 USER_INPUT·USER·PENDING으로 생성하고 currentScheduleDate=startDate로 배정합니다.
-            신규 시작 날짜는 서울 오늘 이후이며 오늘의 지난 시각은 허용합니다. 시각 지정은 마감>시작이어야 합니다. 미완료 Todo의 마감 초과는 마감에 도달한 시각부터 판정합니다.
-            allDay=true는 같은 시작/마감 날짜와 null 시각을 입력하며 서울 00:00부터 다음 날 00:00 미만입니다.
-            userId·상태·반복 식별값·AI 예상값은 입력하지 않습니다. AI 제안 토큰 연동은 후속 AI 단계입니다.
-            생성은 멱등하지 않습니다. 응답 유실 시 목록을 확인한 뒤 재시도합니다.
+            신규 시작 날짜는 서울 기준 오늘 이후이며 오늘의 지난 시각은 허용합니다. 시각 지정은 마감>시작이어야 합니다. 미완료 Todo의 마감 초과는 마감에 도달한 시각부터 판정합니다.
+            allDay=true는 같은 시작/마감 날짜와 null 시각을 입력하며 서울 기준 시각 00:00부터 다음 날 00:00 미만입니다.
+            userId·상태·반복 식별값·AI 예상값은 입력하지 않습니다. 응답 유실 시 목록을 확인한 뒤 재시도합니다.
             """)
     @ApiResponse(responseCode = "201", description = "생성된 Todo",
             headers = @Header(name = "Location", description = "생성 리소스 /api/v1/todos/{todoId}", schema = @Schema(type = "string")),
@@ -85,7 +84,7 @@ public class TodoController {
     @Operation(summary = "날짜·기간·상태별 Todo 목록", description = """
             본인의 삭제되지 않은 Todo를 currentScheduleDate 기준으로 조회합니다. 과거 날짜 종료 상태 조회가 아닙니다.
             date 또는 from/to(양 끝 포함)를 사용하고 함께 입력할 수 없습니다. from/to는 둘 다 필요합니다.
-            날짜 조건 생략 시 서울 오늘, status 생략 시 전체 상태입니다. 복수 상태는 쉼표로 연결합니다.
+            날짜 조건 생략 시 서울 기준 오늘, status 생략 시 전체 상태입니다. 복수 상태는 쉼표로 연결합니다.
             날짜·상태 필터 후 currentScheduleDate,startAt,id 오름차순으로 페이지를 나눕니다.
             page는 0부터 시작하는 묶음 번호, size는 한 묶음 최대 개수(기본 20, 최대 100)입니다.
             """)

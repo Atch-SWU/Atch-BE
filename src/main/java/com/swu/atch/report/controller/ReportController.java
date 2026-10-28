@@ -37,7 +37,7 @@ public class ReportController {
     private final ReportService service;
 
     @GetMapping(value = "/reports/daily", produces = "application/json")
-    @Operation(summary = "일간 집계", description = "FR-REPORT-001~004·007·010·011. 생략 시 서울 오늘입니다. 과거 배정·완료율은 Snapshot, 현재 날짜는 LIVE입니다. 배정 0개의 완료율은 null, 미확정·자료 없음은 별도 상태와 null로 표현합니다. 완료 건수는 해당 완료일의 현재 유효 완료 Todo 기준이므로 완료 취소·삭제 시 변할 수 있습니다. 최근 3년 이내, 미래 날짜 제외, from<=to만 허용합니다.")
+    @Operation(summary = "일간 집계", description = "FR-REPORT-001~004·007·010·011. 생략 시 서울 기준 오늘 날짜입니다. 과거 배정·완료율은 Snapshot, 현재 날짜는 LIVE입니다. 배정 0개의 완료율은 null, 미확정·자료 없음은 별도 상태와 null로 표현합니다. 완료 건수는 해당 완료일의 현재 유효 완료 Todo 기준이므로 완료 취소·삭제 시 변할 수 있습니다. 최근 3년 이내, 미래 날짜 제외, from<=to만 허용합니다.")
     @ApiResponse(responseCode = "200", description = "일간 집계", content = @Content(schema = @Schema(implementation = DailyReportResponse.class)))
     public DailyReportResponse daily(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
@@ -77,7 +77,7 @@ public class ReportController {
     }
 
     @GetMapping(value = "/reports/time-comparisons", produces = "application/json")
-    @Operation(summary = "사용자·AI 예상시간과 실제시간 비교", description = "FR-REPORT-005·006. 현재 유효 완료 Todo를 완료 시각·ID 내림차순으로 조회합니다. 오차 초는 실제-예상이며 음수를 허용합니다. AI 제안이 없으면 AI 필드는 null입니다. 현재 Todo의 예상값을 조회하며 과거 확정 예상값으로 표시하지 않습니다. 전략별 비교 실험·MAE/MAPE·미정 정확도 백분율은 제외합니다. 최근 3년 이내, 미래 날짜 제외, from<=to만 허용합니다.")
+    @Operation(summary = "사용자·AI 예상시간과 실제시간 비교", description = "FR-REPORT-005·006. 현재 유효 완료 Todo를 완료 시각·ID 내림차순으로 조회합니다. 오차 초는 실제-예상이며 음수를 허용합니다. AI 제안이 없으면 AI 필드는 null입니다. 현재 Todo의 예상값을 조회하며 과거 확정 예상값으로 표시하지 않습니다. 최근 3년 이내, 미래 날짜 제외, from<=to만 허용합니다.")
     @ApiResponse(responseCode = "200", description = "사용자·AI 예상시간과 실제시간 비교", content = @Content(schema = @Schema(implementation = TimeComparisonPageResponse.class)))
     public TimeComparisonPageResponse comparisons(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
