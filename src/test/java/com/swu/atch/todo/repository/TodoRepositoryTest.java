@@ -18,6 +18,18 @@ import com.swu.atch.recurrence.domain.RepeatPattern;
 import com.swu.atch.recurrence.domain.RepeatPatternStatus;
 import com.swu.atch.recurrence.repository.RecurrenceRuleRepository;
 import com.swu.atch.recurrence.repository.RepeatPatternRepository;
+import com.swu.atch.reward.domain.CharacterItem;
+import com.swu.atch.reward.domain.ItemGrade;
+import com.swu.atch.reward.domain.ItemCategory;
+import com.swu.atch.reward.domain.UserCharacterItem;
+import com.swu.atch.reward.domain.UserEquippedItem;
+import com.swu.atch.reward.domain.RewardSettlement;
+import com.swu.atch.reward.domain.RewardGrant;
+import com.swu.atch.reward.repository.CharacterItemRepository;
+import com.swu.atch.reward.repository.UserCharacterItemRepository;
+import com.swu.atch.reward.repository.UserEquippedItemRepository;
+import com.swu.atch.reward.repository.RewardSettlementRepository;
+import com.swu.atch.reward.repository.RewardGrantRepository;
 import com.swu.atch.setting.domain.UserSetting;
 import com.swu.atch.setting.repository.UserSettingRepository;
 import com.swu.atch.user.repository.UserRepository;
@@ -65,6 +77,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import javax.sql.DataSource;
+import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.DayOfWeek;
@@ -72,6 +85,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -100,7 +114,7 @@ class TodoRepositoryTest {
             DockerImageName.parse("pgvector/pgvector:pg16")
                     .asCompatibleSubstituteFor("postgres")
     ).withDatabaseName("atch_todo_test")
-            .withLabel("atch.verification", "v10").withReuse(false);
+            .withLabel("atch.verification", "v11").withReuse(false);
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -123,7 +137,8 @@ class TodoRepositoryTest {
             AuthAccountRepository.class,
             UserSettingRepository.class,
             UserRepository.class,
-            RepeatPatternRepository.class
+            RepeatPatternRepository.class,
+            CharacterItemRepository.class
     })
     static class JpaConfiguration {
 
@@ -179,9 +194,14 @@ class TodoRepositoryTest {
     @Autowired private UserRepository userRepository;
     @Autowired private RepeatPatternRepository patternRepository;
     @Autowired private RecurrenceRuleRepository ruleRepository;
+    @Autowired private CharacterItemRepository itemRepository;
+    @Autowired private UserCharacterItemRepository ownedRepository;
+    @Autowired private UserEquippedItemRepository equippedRepository;
+    @Autowired private RewardSettlementRepository settlementRepository;
+    @Autowired private RewardGrantRepository grantRepository;
 
     @Test
-    void migratesV1ThroughV10AndValidatesJpaOnTheContainer() throws SQLException {
+    void migratesV1ThroughV11AndValidatesJpaOnTheContainer() throws SQLException {
         assertThat(flyway.getConfiguration().getDataSource()).isSameAs(dataSource);
         try (var connection = dataSource.getConnection()) {
             assertThat(connection.getMetaData().getURL()).isEqualTo(POSTGRES.getJdbcUrl());
@@ -189,21 +209,21 @@ class TodoRepositoryTest {
         }
         assertThat(Arrays.stream(flyway.info().applied())
                 .map(MigrationInfo::getVersion)
-                .map(Object::toString).toList()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
+                .map(Object::toString).toList()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11");
         flyway.validate();
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history ORDER BY installed_rank", String.class))
-                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
+                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11");
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM flyway_schema_history WHERE success AND checksum IS NOT NULL
-                """, Long.class)).isEqualTo(10L);
+                """, Long.class)).isEqualTo(11L);
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM pg_extension WHERE extname = 'vector'", Long.class
         )).isEqualTo(1L);
         assertThat(entityManager.getEntityManagerFactory().getProperties())
                 .containsEntry("hibernate.hbm2ddl.auto", "validate");
-        System.out.println("V10 JPA: database=atch_todo_test; container=" + POSTGRES.getContainerId()
+        System.out.println("V11 JPA: database=atch_todo_test; container=" + POSTGRES.getContainerId()
                 + "; PostgreSQL=" + jdbc.queryForObject("SHOW server_version", String.class)
                 + "; vector=" + jdbc.queryForObject(
                 "SELECT extversion FROM pg_extension WHERE extname='vector'", String.class));
@@ -538,7 +558,12 @@ class TodoRepositoryTest {
                 Map.entry("todo_embeddings", "todo_id:bigint,embedding:vector(1024),embedding_model:varchar(100),source_text_hash:char(64),created_at:timestamptz,updated_at:timestamptz"),
                 Map.entry("time_prediction_experiments", "id:bigint,prediction_run_id:uuid,todo_id:bigint,user_id:bigint,strategy_type:varchar(40),predicted_minutes:integer,actual_minutes:integer?,absolute_error_minutes:integer?,absolute_percentage_error:float8?,baseline_prediction_minutes:integer?,duration_correction_factor:float8?,simple_factor:float8?,profile_reliability_score:float8?,sample_count:integer?,log_ratio_stddev:float8?,underestimation_rate:float8?,context_adjustment_factor:float8?,similar_todo_ids:jsonb?,reason_codes:jsonb?,model_name:varchar(100)?,prompt_version:varchar(50)?,embedding_model:varchar(100)?,created_at:timestamptz,evaluated_at:timestamptz?"),
                 Map.entry("repeat_patterns", "id:bigint,user_id:bigint,task_name:varchar(200),frequency:varchar(20),day_of_week:varchar(10)?,scheduled_time:time,occurrence_count:integer,status:varchar(20),last_occurrence_date:date,last_suggested_at:timestamptz?,created_at:timestamptz,updated_at:timestamptz"),
-                Map.entry("recurrence_rules", "id:bigint,user_id:bigint,source_pattern_id:bigint,task_name:varchar(200),memo:text?,frequency:varchar(20),day_of_week:varchar(10)?,scheduled_time:time,default_deadline_offset_minutes:integer,default_user_estimated_duration_minutes:integer,enabled:boolean,created_at:timestamptz,updated_at:timestamptz,deleted_at:timestamptz?")
+                Map.entry("recurrence_rules", "id:bigint,user_id:bigint,source_pattern_id:bigint,task_name:varchar(200),memo:text?,frequency:varchar(20),day_of_week:varchar(10)?,scheduled_time:time,default_deadline_offset_minutes:integer,default_user_estimated_duration_minutes:integer,enabled:boolean,created_at:timestamptz,updated_at:timestamptz,deleted_at:timestamptz?"),
+                Map.entry("character_items", "id:bigint,name:varchar(100),grade:varchar(10),category:varchar(20),asset_key:varchar(500),active:boolean,created_at:timestamptz,updated_at:timestamptz"),
+                Map.entry("user_character_items", "id:bigint,user_id:bigint,character_item_id:bigint,acquired_at:timestamptz"),
+                Map.entry("user_equipped_items", "id:bigint,user_id:bigint,character_item_id:bigint,category:varchar(20),equipped_at:timestamptz,updated_at:timestamptz"),
+                Map.entry("reward_settlements", "id:bigint,user_id:bigint,reward_date:date,assigned_todo_count:integer,completed_todo_count:integer,completion_rate:numeric(5,2),settled_at:timestamptz"),
+                Map.entry("reward_grants", "id:bigint,user_id:bigint,character_item_id:bigint,reward_date:date,reward_grade:varchar(10),completion_rate:numeric(5,2),granted_at:timestamptz")
         );
         expected.forEach((table, columns) -> {
             var actual = jdbc.queryForList("""
@@ -554,17 +579,17 @@ class TodoRepositoryTest {
                             .replace("character varying", "varchar")
                             .replace("character(", "char(").replace("double precision", "float8"))
                     .toList();
-            assertThat(actual).as(table).containsExactlyInAnyOrder(columns.split(","));
+            assertThat(actual).as(table).containsExactlyInAnyOrder(columns.split(",(?=[a-z_]+:)"));
         });
-        assertThat(entityManager.getMetamodel().getEntities()).hasSize(11);
+        assertThat(entityManager.getMetamodel().getEntities()).hasSize(16);
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM information_schema.columns
                 WHERE table_schema='public' AND is_identity='YES'
-                """, Long.class)).isEqualTo(9);
+                """, Long.class)).isEqualTo(14);
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
                 WHERE n.nspname='public' AND c.contype='f' AND c.confdeltype='a'
-                """, Long.class)).isEqualTo(14);
+                """, Long.class)).isEqualTo(23);
         assertThat(jdbc.queryForList("""
                 SELECT child.relname || '.' || ca.attname || '->' || parent.relname || '.' || pa.attname
                 FROM pg_constraint c JOIN pg_class child ON child.oid=c.conrelid
@@ -580,7 +605,12 @@ class TodoRepositoryTest {
                 "todo_embeddings.todo_id->todos.id", "time_prediction_experiments.todo_id->todos.id",
                 "time_prediction_experiments.user_id->users.id", "repeat_patterns.user_id->users.id",
                 "recurrence_rules.user_id->users.id", "recurrence_rules.source_pattern_id->repeat_patterns.id",
-                "todos.recurrence_rule_id->recurrence_rules.id");
+                "todos.recurrence_rule_id->recurrence_rules.id",
+                "user_character_items.user_id->users.id", "user_character_items.character_item_id->character_items.id",
+                "user_equipped_items.user_id->users.id", "user_equipped_items.user_id->user_character_items.user_id",
+                "user_equipped_items.character_item_id->character_items.id", "reward_settlements.user_id->users.id",
+                "reward_grants.user_id->users.id", "reward_grants.character_item_id->character_items.id",
+                "reward_grants.user_id->reward_settlements.user_id");
         assertThat(jdbc.queryForObject("""
                 SELECT pg_get_constraintdef(oid) FROM pg_constraint
                 WHERE conname='fk_recurrence_rules_pattern_owner'
@@ -591,16 +621,32 @@ class TodoRepositoryTest {
                 WHERE conname='fk_todos_recurrence_rule_owner'
                 """, String.class)).isEqualTo(
                 "FOREIGN KEY (recurrence_rule_id, user_id) REFERENCES recurrence_rules(id, user_id)");
+        assertThat(jdbc.queryForObject("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname=?",
+                String.class, "fk_user_equipped_items_owned")).isEqualTo(
+                "FOREIGN KEY (user_id, character_item_id) REFERENCES user_character_items(user_id, character_item_id)");
+        assertThat(jdbc.queryForObject("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname=?",
+                String.class, "fk_user_equipped_items_item_category")).isEqualTo(
+                "FOREIGN KEY (character_item_id, category) REFERENCES character_items(id, category)");
+        assertThat(jdbc.queryForObject("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname=?",
+                String.class, "fk_reward_grants_item_grade")).isEqualTo(
+                "FOREIGN KEY (character_item_id, reward_grade) REFERENCES character_items(id, grade)");
+        assertThat(jdbc.queryForObject("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname=?",
+                String.class, "fk_reward_grants_settlement")).isEqualTo(
+                "FOREIGN KEY (user_id, reward_date) REFERENCES reward_settlements(user_id, reward_date)");
         assertThat(jdbc.queryForList("""
                 SELECT conname FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
                 WHERE n.nspname='public' AND c.contype='c'
-                """, String.class)).hasSize(44).contains("ck_auth_accounts_provider", "ck_auth_accounts_fields",
+                """, String.class)).hasSize(53).contains("ck_auth_accounts_provider", "ck_auth_accounts_fields",
                         "ck_repeat_patterns_task_name", "ck_repeat_patterns_frequency",
                         "ck_repeat_patterns_day_of_week", "ck_repeat_patterns_occurrence_count",
                         "ck_repeat_patterns_status", "ck_recurrence_rules_task_name",
                         "ck_recurrence_rules_frequency", "ck_recurrence_rules_day_of_week",
                         "ck_recurrence_rules_deadline_offset", "ck_recurrence_rules_user_estimate",
-                        "ck_todos_recurrence_period_pair");
+                        "ck_todos_recurrence_period_pair",
+                        "ck_character_items_name", "ck_character_items_asset_key", "ck_character_items_grade",
+                        "ck_character_items_category", "ck_user_equipped_items_category",
+                        "ck_reward_settlements_todo_counts", "ck_reward_settlements_completion_rate",
+                        "ck_reward_grants_grade", "ck_reward_grants_completion_rate");
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM pg_constraint
                 WHERE conrelid='todos'::regclass AND contype='f'
@@ -620,6 +666,14 @@ class TodoRepositoryTest {
             while (rs.next()) result.put(rs.getString(1), rs.getString(2));
             return result;
         });
+        assertThat(indexes.get("uq_character_items_id_category")).contains("UNIQUE", "(id, category)");
+        assertThat(indexes.get("uq_character_items_id_grade")).contains("UNIQUE", "(id, grade)");
+        assertThat(indexes.get("uq_user_character_items_user_item")).contains("UNIQUE", "(user_id, character_item_id)");
+        assertThat(indexes.get("uq_user_equipped_items_user_category")).contains("UNIQUE", "(user_id, category)");
+        assertThat(indexes.get("uq_reward_settlements_user_date")).contains("UNIQUE", "(user_id, reward_date)");
+        assertThat(indexes.get("uq_reward_grants_user_date_grade")).contains("UNIQUE", "(user_id, reward_date, reward_grade)");
+        assertThat(indexes.get("uq_reward_grants_user_item")).contains("UNIQUE", "(user_id, character_item_id)");
+        assertThat(indexes.get("ix_character_items_active_grade")).contains("(grade, id)", "WHERE", "active");
         assertThat(indexes.get("uq_todos_recurrence_occurrence"))
                 .contains("UNIQUE", "(recurrence_rule_id, recurrence_occurrence_at)",
                         "WHERE (recurrence_rule_id IS NOT NULL)")
@@ -1389,6 +1443,223 @@ class TodoRepositoryTest {
 
     private RecurrenceRule persistRule(User owner, RepeatPattern pattern) {
         return ruleRepository.saveAndFlush(ruleBuilder(owner, pattern).build());
+    }
+
+    @Test
+    void savesRewardGraphAndQueriesOwnedItemsEquipmentSettlementsAndGrants() {
+        User owner = persistUser("보상소유자");
+        User other = persistUser("다른보상자");
+        CharacterItem b = persistItem(ItemGrade.B, ItemCategory.COLOR);
+        CharacterItem extraB = persistItem(ItemGrade.B, ItemCategory.EYES);
+        CharacterItem a = persistItem(ItemGrade.A, ItemCategory.BACKGROUND);
+        CharacterItem s = persistItem(ItemGrade.S, ItemCategory.ACCESSORY);
+        var owned = ownedRepository.saveAllAndFlush(List.of(
+                UserCharacterItem.acquire(owner, b), UserCharacterItem.acquire(owner, a),
+                UserCharacterItem.acquire(owner, s)));
+        ownedRepository.saveAndFlush(UserCharacterItem.acquire(other, extraB));
+        UserEquippedItem equipped = equippedRepository.saveAndFlush(UserEquippedItem.equip(owner, b, START));
+        equippedRepository.saveAndFlush(UserEquippedItem.equip(owner, a, START.plusSeconds(1)));
+        equippedRepository.saveAndFlush(UserEquippedItem.equip(other, extraB, START));
+        RewardSettlement settlement = settlementRepository.saveAndFlush(
+                RewardSettlement.settle(owner, SCHEDULE_DATE, 4, 4, DUE));
+        // 추첨·등급 판정 기능과 구분하는 저장·조회용 명시적 지급 픽스처
+        grantRepository.saveAllAndFlush(List.of(
+                RewardGrant.fromSettlement(settlement, b, DUE),
+                RewardGrant.fromSettlement(settlement, a, DUE),
+                RewardGrant.fromSettlement(settlement, s, DUE)));
+        settlementRepository.saveAndFlush(RewardSettlement.settle(owner, SCHEDULE_DATE.plusDays(1), 0, 0, DUE));
+
+        assertThat(b.isActive()).isTrue();
+        assertThat(owned).allSatisfy(value -> assertThat(value.getAcquiredAt()).isNotNull());
+        var acquiredAt = owned.getFirst().getAcquiredAt();
+        // 비활성화 기능 구현이 아닌 기존 보유·장착 보존 확인용 SQL 픽스처
+        jdbc.update("UPDATE character_items SET active=false WHERE id=?", b.getId());
+        entityManager.clear();
+
+        CharacterItem reloadedItem = itemRepository.findById(b.getId()).orElseThrow();
+        assertThat(reloadedItem.getName()).isEqualTo("검증 아이템");
+        assertThat(reloadedItem.getAssetKey()).isEqualTo("fixture/B/COLOR");
+        assertThat(reloadedItem.getGrade()).isEqualTo(ItemGrade.B);
+        assertThat(reloadedItem.getCategory()).isEqualTo(ItemCategory.COLOR);
+        assertThat(reloadedItem.getCreatedAt()).isNotNull();
+        assertThat(reloadedItem.getUpdatedAt()).isNotNull();
+        assertThat(reloadedItem.isActive()).isFalse();
+        assertThat(itemRepository.findAllByGradeAndActiveTrueOrderByIdAsc(ItemGrade.B))
+                .extracting(CharacterItem::getId).containsExactly(extraB.getId());
+        assertThat(itemRepository.countByActiveTrue()).isEqualTo(3);
+        assertThat(ownedRepository.countByUser_IdAndCharacterItem_ActiveTrue(owner.getId())).isEqualTo(2);
+        assertThat(ownedRepository.countByUser_IdAndCharacterItem_ActiveTrue(other.getId())).isEqualTo(1);
+        assertThat(ownedRepository.existsByUser_IdAndCharacterItem_Id(owner.getId(), b.getId())).isTrue();
+        assertThat(ownedRepository.existsByUser_IdAndCharacterItem_Id(other.getId(), b.getId())).isFalse();
+        var reloadedOwned = ownedRepository.findAllByUser_IdOrderByAcquiredAtDescIdDesc(owner.getId());
+        assertThat(reloadedOwned).hasSize(3).isSortedAccordingTo(Comparator
+                .comparing(UserCharacterItem::getAcquiredAt).thenComparing(UserCharacterItem::getId).reversed());
+        assertThat(reloadedOwned).extracting(value -> value.getUser().getId()).containsOnly(owner.getId());
+        assertThat(ownedRepository.findById(owned.getFirst().getId()).orElseThrow().getAcquiredAt())
+                .isEqualTo(acquiredAt);
+        UserEquippedItem reloadedEquipment = equippedRepository
+                .findByUser_IdAndCategory(owner.getId(), ItemCategory.COLOR).orElseThrow();
+        assertThat(reloadedEquipment.getId()).isEqualTo(equipped.getId());
+        assertThat(reloadedEquipment.getCharacterItem().getId()).isEqualTo(b.getId());
+        assertThat(reloadedEquipment.getCharacterItem().isActive()).isFalse();
+        assertThat(reloadedEquipment.getEquippedAt()).isEqualTo(START);
+        assertThat(reloadedEquipment.getUpdatedAt()).isNotNull();
+        assertThat(equippedRepository.findByUser_IdAndCategory(other.getId(), ItemCategory.COLOR)).isEmpty();
+        assertThat(equippedRepository.findAllByUser_IdOrderByCategoryAsc(owner.getId()))
+                .extracting(UserEquippedItem::getCategory).containsExactly(ItemCategory.BACKGROUND, ItemCategory.COLOR);
+        RewardSettlement reloadedSettlement = settlementRepository
+                .findByUser_IdAndRewardDate(owner.getId(), SCHEDULE_DATE).orElseThrow();
+        assertThat(reloadedSettlement.getAssignedTodoCount()).isEqualTo(4);
+        assertThat(reloadedSettlement.getCompletedTodoCount()).isEqualTo(4);
+        assertThat(reloadedSettlement.getCompletionRate()).isEqualByComparingTo("100.00");
+        assertThat(reloadedSettlement.getCompletionRate().scale()).isEqualTo(2);
+        assertThat(reloadedSettlement.getSettledAt()).isEqualTo(DUE);
+        assertThat(settlementRepository.existsByUser_IdAndRewardDate(owner.getId(), SCHEDULE_DATE)).isTrue();
+        assertThat(settlementRepository.findByUser_IdAndRewardDate(other.getId(), SCHEDULE_DATE)).isEmpty();
+        var grants = grantRepository.findAllByUser_IdAndRewardDateOrderByRewardGradeAsc(owner.getId(), SCHEDULE_DATE);
+        assertThat(grants).extracting(RewardGrant::getRewardGrade).containsExactly(ItemGrade.A, ItemGrade.B, ItemGrade.S);
+        assertThat(grants).allSatisfy(grant -> {
+            assertThat(grant.getUser().getId()).isEqualTo(owner.getId());
+            assertThat(grant.getRewardDate()).isEqualTo(SCHEDULE_DATE);
+            assertThat(grant.getCompletionRate()).isEqualByComparingTo(reloadedSettlement.getCompletionRate());
+            assertThat(grant.getCharacterItem().getGrade()).isEqualTo(grant.getRewardGrade());
+            assertThat(grant.getGrantedAt()).isEqualTo(DUE);
+        });
+        assertThat(grantRepository.existsByUser_IdAndRewardDateAndRewardGrade(owner.getId(), SCHEDULE_DATE, ItemGrade.B))
+                .isTrue();
+        assertThat(grantRepository.existsByUser_IdAndRewardDateAndRewardGrade(other.getId(), SCHEDULE_DATE, ItemGrade.B))
+                .isFalse();
+        assertThat(settlementRepository.findByUser_IdAndRewardDate(owner.getId(), SCHEDULE_DATE.plusDays(1))
+                .orElseThrow().getCompletionRate()).isEqualByComparingTo("0.00");
+        assertThat(grantRepository.findAllByUser_IdAndRewardDateOrderByRewardGradeAsc(owner.getId(), SCHEDULE_DATE.plusDays(1)))
+                .isEmpty();
+    }
+
+    @ParameterizedTest
+    @MethodSource("completionRates")
+    void calculatesSettlementPercentageWithHalfUpRounding(int assigned, int completed, String expected) {
+        var settlement = RewardSettlement.settle(new User("완료율"), SCHEDULE_DATE, assigned, completed, DUE);
+        assertThat(settlement.getCompletionRate()).isEqualByComparingTo(new BigDecimal(expected));
+        assertThat(settlement.getCompletionRate().scale()).isEqualTo(2);
+        assertThat(settlement.getAssignedTodoCount()).isEqualTo(assigned);
+        assertThat(settlement.getCompletedTodoCount()).isEqualTo(completed);
+    }
+
+    static Stream<Arguments> completionRates() {
+        return Stream.of(Arguments.of(0, 0, "0.00"), Arguments.of(3, 2, "66.67"),
+                Arguments.of(32, 1, "3.13"), Arguments.of(20000, 19999, "100.00"));
+    }
+
+    @Test
+    void rejectsInvalidSettlementCountsAndMissingRewardInputs() {
+        User owner = new User("입력검사");
+        assertThrows(IllegalArgumentException.class, () -> RewardSettlement.settle(owner, SCHEDULE_DATE, -1, 0, DUE));
+        assertThrows(IllegalArgumentException.class, () -> RewardSettlement.settle(owner, SCHEDULE_DATE, 1, -1, DUE));
+        assertThrows(IllegalArgumentException.class, () -> RewardSettlement.settle(owner, SCHEDULE_DATE, 1, 2, DUE));
+        assertThrows(NullPointerException.class, () -> RewardSettlement.settle(owner, null, 0, 0, DUE));
+        assertThrows(NullPointerException.class, () -> UserCharacterItem.acquire(owner, null));
+        assertThrows(NullPointerException.class, () -> UserEquippedItem.equip(owner, null, START));
+        assertThrows(NullPointerException.class, () -> RewardGrant.fromSettlement(null, null, DUE));
+    }
+
+    @ParameterizedTest(name = "{0}: {1}")
+    @MethodSource("rewardViolations")
+    void rejectsRewardIntegrityViolations(String kind, String assignment, String sqlState, String constraint) {
+        User owner = persistUser("보상제약자");
+        User other = persistUser("타인제약자");
+        CharacterItem item = persistItem(ItemGrade.B, ItemCategory.COLOR);
+        CharacterItem extra = persistItem(ItemGrade.B, ItemCategory.COLOR);
+        ownedRepository.saveAndFlush(UserCharacterItem.acquire(owner, item));
+        var settlement = settlementRepository.saveAndFlush(RewardSettlement.settle(owner, SCHEDULE_DATE, 4, 3, DUE));
+        switch (kind) {
+            case "owned" -> assertViolation(() -> jdbc.update("""
+                    INSERT INTO user_character_items(user_id, character_item_id) VALUES (?, ?)
+                    """, owner.getId(), item.getId()), sqlState, constraint);
+            case "equipment-duplicate" -> {
+                ownedRepository.saveAndFlush(UserCharacterItem.acquire(owner, extra));
+                equippedRepository.saveAndFlush(UserEquippedItem.equip(owner, item, START));
+                assertViolation(() -> jdbc.update("""
+                        INSERT INTO user_equipped_items(user_id, character_item_id, category, equipped_at)
+                        VALUES (?, ?, 'COLOR', ?)
+                        """, owner.getId(), extra.getId(), Timestamp.from(START)), sqlState, constraint);
+            }
+            case "equipment-unowned", "equipment-other", "equipment-category" -> {
+                if (kind.equals("equipment-other")) {
+                    ownedRepository.saveAndFlush(UserCharacterItem.acquire(other, extra));
+                }
+                long targetItem = kind.equals("equipment-category") ? item.getId() : extra.getId();
+                String category = kind.equals("equipment-category") ? "EYES" : "COLOR";
+                assertViolation(() -> jdbc.update("""
+                        INSERT INTO user_equipped_items(user_id, character_item_id, category, equipped_at)
+                        VALUES (?, ?, ?, ?)
+                        """, owner.getId(), targetItem, category, Timestamp.from(START)), sqlState, constraint);
+            }
+            case "settlement-duplicate" -> assertViolation(() -> jdbc.update("""
+                    INSERT INTO reward_settlements(user_id, reward_date, assigned_todo_count,
+                        completed_todo_count, completion_rate, settled_at) VALUES (?, ?, 0, 0, 0, ?)
+                    """, owner.getId(), SCHEDULE_DATE, Timestamp.from(DUE)), sqlState, constraint);
+            case "grant-grade-duplicate", "grant-item-duplicate" -> {
+                grantRepository.saveAndFlush(RewardGrant.fromSettlement(settlement, item, DUE));
+                LocalDate date = SCHEDULE_DATE;
+                if (kind.equals("grant-item-duplicate")) {
+                    date = date.plusDays(1);
+                    settlementRepository.saveAndFlush(RewardSettlement.settle(owner, date, 4, 3, DUE));
+                }
+                LocalDate targetDate = date;
+                long targetItem = kind.equals("grant-item-duplicate") ? item.getId() : extra.getId();
+                assertViolation(() -> jdbc.update("""
+                        INSERT INTO reward_grants(user_id, character_item_id, reward_date,
+                            reward_grade, completion_rate, granted_at) VALUES (?, ?, ?, 'B', 75, ?)
+                        """, owner.getId(), targetItem, targetDate, Timestamp.from(DUE)), sqlState, constraint);
+            }
+            case "grant-grade", "grant-no-settlement" -> {
+                String grade = kind.equals("grant-grade") ? "A" : "B";
+                LocalDate date = kind.equals("grant-no-settlement") ? SCHEDULE_DATE.plusDays(1) : SCHEDULE_DATE;
+                assertViolation(() -> jdbc.update("""
+                        INSERT INTO reward_grants(user_id, character_item_id, reward_date,
+                            reward_grade, completion_rate, granted_at) VALUES (?, ?, ?, ?, 75, ?)
+                        """, owner.getId(), item.getId(), date, grade, Timestamp.from(DUE)), sqlState, constraint);
+            }
+            case "settlement-update" -> assertViolation(() -> jdbc.update(
+                    "UPDATE reward_settlements SET " + assignment + " WHERE id=?", settlement.getId()), sqlState, constraint);
+            case "grant-update" -> {
+                var grant = grantRepository.saveAndFlush(RewardGrant.fromSettlement(settlement, item, DUE));
+                assertViolation(() -> jdbc.update("UPDATE reward_grants SET " + assignment + " WHERE id=?", grant.getId()),
+                        sqlState, constraint);
+            }
+            case "catalog-update" -> assertViolation(() -> jdbc.update(
+                    "UPDATE character_items SET " + assignment + " WHERE id=?", item.getId()), sqlState, constraint);
+            default -> throw new IllegalArgumentException("알 수 없는 보상 제약 사례: " + kind);
+        }
+    }
+
+    static Stream<Arguments> rewardViolations() {
+        return Stream.of(
+                Arguments.of("owned", "", "23505", "uq_user_character_items_user_item"),
+                Arguments.of("equipment-duplicate", "", "23505", "uq_user_equipped_items_user_category"),
+                Arguments.of("equipment-unowned", "", "23503", "fk_user_equipped_items_owned"),
+                Arguments.of("equipment-other", "", "23503", "fk_user_equipped_items_owned"),
+                Arguments.of("equipment-category", "", "23503", "fk_user_equipped_items_item_category"),
+                Arguments.of("settlement-duplicate", "", "23505", "uq_reward_settlements_user_date"),
+                Arguments.of("grant-grade-duplicate", "", "23505", "uq_reward_grants_user_date_grade"),
+                Arguments.of("grant-item-duplicate", "", "23505", "uq_reward_grants_user_item"),
+                Arguments.of("grant-grade", "", "23503", "fk_reward_grants_item_grade"),
+                Arguments.of("grant-no-settlement", "", "23503", "fk_reward_grants_settlement"),
+                Arguments.of("settlement-update", "assigned_todo_count=-1", "23514", "ck_reward_settlements_todo_counts"),
+                Arguments.of("settlement-update", "completed_todo_count=-1", "23514", "ck_reward_settlements_todo_counts"),
+                Arguments.of("settlement-update", "completed_todo_count=5", "23514", "ck_reward_settlements_todo_counts"),
+                Arguments.of("settlement-update", "completion_rate=-0.01", "23514", "ck_reward_settlements_completion_rate"),
+                Arguments.of("settlement-update", "completion_rate=100.01", "23514", "ck_reward_settlements_completion_rate"),
+                Arguments.of("grant-update", "completion_rate=-0.01", "23514", "ck_reward_grants_completion_rate"),
+                Arguments.of("grant-update", "completion_rate=100.01", "23514", "ck_reward_grants_completion_rate"),
+                Arguments.of("catalog-update", "grade='X'", "23514", "ck_character_items_grade"),
+                Arguments.of("catalog-update", "category='HAT'", "23514", "ck_character_items_category")
+        );
+    }
+
+    private CharacterItem persistItem(ItemGrade grade, ItemCategory category) {
+        return itemRepository.saveAndFlush(CharacterItem.builder().name("검증 아이템")
+                .grade(grade).category(category).assetKey("fixture/" + grade + "/" + category).build());
     }
 
     private float[] vector() {
