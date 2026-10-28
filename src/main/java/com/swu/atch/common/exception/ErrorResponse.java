@@ -1,5 +1,7 @@
 package com.swu.atch.common.exception;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -10,12 +12,16 @@ import java.util.List;
 // * timestamp: 오류 발생 시각 (UTC)
 // * errors: 입력값 검증에 실패한 필드 목록
 public record ErrorResponse(
+        @Schema(description = "오류 코드. HTTP 상태와 함께 확인하고 코드별로 화면 처리를 분기합니다.")
         String code,
+        @Schema(description = "오류에 대한 한국어 설명입니다.")
         String message,
+        @Schema(description = "오류가 발생한 요청 경로입니다.")
         String path,
+        @Schema(description = "오류 발생 시각(UTC)입니다.")
         Instant timestamp,
-        List<FieldErrorDetail> errors
-) {
+        @Schema(description = "입력 검증에 실패한 필드 목록. 필드 오류가 없으면 빈 배열입니다.")
+        List<FieldErrorDetail> errors) {
 
     // 일반적인 비즈니스 오류 응답 생성
     public static ErrorResponse of(
@@ -48,8 +54,9 @@ public record ErrorResponse(
 
     // 검증에 실패한 필드와 사유
     public record FieldErrorDetail(
+            @Schema(description = "입력 검증에 실패한 필드명. 해당 입력란을 찾을 때 사용합니다.")
             String field,
-            String reason
-    ) {
+            @Schema(description = "해당 필드의 오류 이유. 입력란의 안내 문구로 표시할 수 있습니다.")
+            String reason) {
     }
 }

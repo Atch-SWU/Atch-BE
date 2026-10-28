@@ -18,10 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-@Tag(
-        name = "인증 세션",
-        description = "Refresh Token 갱신 및 현재 기기 로그아웃 API"
-)
+@Tag(name = "03. [프론트] 인증 유지 · 로그아웃", description = "리프레시 토큰을 요청 본문으로 전달합니다.")
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthSessionController {
@@ -36,28 +33,28 @@ public class AuthSessionController {
     @Operation(
             summary = "Access·Refresh Token 갱신",
             description = """
-                    기존 Refresh Token을 이용하여 새 Access Token과 Refresh Token을 발급합니다.
+            기존 Refresh Token을 이용하여 새 Access Token과 Refresh Token을 발급합니다.
 
-                    호출 조건:
-                    - Access Token 없이 호출 가능
-                    - Authorization 헤더를 첨부하지 마세요
-                    - 요청 본문에 현재 Refresh Token 전달
+            호출 조건:
+            - Access Token 없이 호출 가능
+            - Authorization 헤더를 첨부하지 마세요
+            - 요청 본문에 현재 Refresh Token 전달
 
-                    성공 시:
-                    - Access Token과 Refresh Token을 모두 새 값으로 교체
-                    - Access Token 유효기간은 15분
-                    - Refresh Token의 최초 로그인 기준 14일 만료 시각은 유지
-                    - 기존 Refresh Token은 즉시 무효화
+            성공 시:
+            - Access Token과 Refresh Token을 모두 새 값으로 교체
+            - Access Token 유효기간은 15분
+            - Refresh Token의 최초 로그인 기준 14일 만료 시각은 유지
+            - 기존 Refresh Token은 즉시 무효화
 
-                    프론트엔드 처리:
-                    - 200: 두 토큰을 안전하게 교체한 뒤 원래 API 요청 재시도
-                    - 401: 저장된 인증정보 삭제 후 로그인 화면 이동
-                    - 503: 서버 장애 안내, 즉시 재로그인 강제 금지
-                    - 동시에 여러 요청이 만료되어도 갱신 요청은 한 번만 수행
+            프론트엔드 처리:
+            - 200: 두 토큰을 안전하게 교체한 뒤 원래 API 요청 재시도
+            - 401: 저장된 인증정보 삭제 후 로그인 화면 이동
+            - 503: 서버 장애 안내, 즉시 재로그인 강제 금지
+            - 동시에 여러 요청이 만료되어도 갱신 요청은 한 번만 수행
 
-                    주의: 이미 사용한 Refresh Token을 다시 보내면
-                    재사용으로 감지되어 현재 인증 세션이 폐기될 수 있습니다.
-                    """
+            ### 주의사항 이미 사용한 Refresh Token을 다시 보내면
+            재사용으로 감지되어 현재 인증 세션이 폐기될 수 있습니다.
+            """
     )
     @SecurityRequirements
     @ApiResponses({
@@ -100,23 +97,23 @@ public class AuthSessionController {
     @Operation(
             summary = "현재 기기 로그아웃",
             description = """
-                    전달한 Refresh Token이 속한 인증 세션을 폐기합니다.
+            전달한 Refresh Token이 속한 인증 세션을 폐기합니다.
 
-                    - Access Token 없이 호출 가능
-                    - Authorization 헤더를 첨부하지 마세요
-                    - 요청 본문에 현재 Refresh Token 전달
-                    - 성공 시 HTTP 204, 응답 본문 없음
-                    - 이미 만료되거나 삭제된 세션도 204 반환
-                    - 다른 기기의 로그인 세션에는 영향 없음
+            - Access Token 없이 호출 가능
+            - Authorization 헤더를 첨부하지 마세요
+            - 요청 본문에 현재 Refresh Token 전달
+            - 성공 시 HTTP 204, 응답 본문 없음
+            - 이미 만료되거나 삭제된 세션도 204 반환
+            - 다른 기기의 로그인 세션에는 영향 없음
 
-                    프론트엔드 처리:
-                    - 서버 로그아웃 완료 후 Keychain의 두 토큰 삭제
-                    - 로그인 화면으로 이동
-                    - 503에서는 서버 세션 폐기가 확인되지 않았으므로 사용자에게 안내
+            프론트엔드 처리:
+            - 서버 로그아웃 완료 후 Keychain의 두 토큰 삭제
+            - 로그인 화면으로 이동
+            - 503에서는 서버 세션 폐기가 확인되지 않았으므로 사용자에게 안내
 
-                    주의: 기존 Access Token 자체는 서버에서 즉시 폐기하지 않으며
-                    남은 유효기간 동안 사용 가능할 수 있습니다.
-                    """
+            ### 주의사항 기존 Access Token 자체는 서버에서 즉시 폐기하지 않으며
+            남은 유효기간 동안 사용 가능할 수 있습니다.
+            """
     )
     @SecurityRequirements
     @ApiResponses({

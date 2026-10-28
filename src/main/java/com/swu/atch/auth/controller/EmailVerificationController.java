@@ -16,7 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 // 이메일 인증 컨트롤러
-@Tag(name = "이메일 인증", description = "회원가입 전 이메일 소유 여부를 확인하는 API")
+@Tag(name = "01. [프론트] 회원가입 이메일 인증", description = "로그인 없이 호출합니다. 코드 발송 → 코드 확인 → 회원가입 순서입니다.")
 @RestController
 @RequestMapping("/api/v1/auth/email")
 public class EmailVerificationController {
@@ -33,14 +33,14 @@ public class EmailVerificationController {
     @Operation(
             summary = "이메일 인증코드 발송",
             description = """
-                    회원가입할 이메일로 6자리 인증코드를 발송합니다.
+            회원가입할 이메일로 6자리 인증코드를 발송합니다.
 
-                    - 로그인 불필요
-                    - 인증코드 유효기간: 5분
-                    - 동일 이메일 재전송 제한: 60초
-                    - 성공 시 응답 본문 없음
-                    - 이메일 발송 후 인증코드 입력 화면으로 이동
-                    """
+            - 로그인 불필요
+            - 인증코드 유효기간: 5분
+            - 동일 이메일 재전송 제한: 60초
+            - 성공 시 응답 본문 없음
+            - 이메일 발송 후 인증코드 입력 화면으로 이동
+            """
     )
     @SecurityRequirements
     @ApiResponses({
@@ -62,16 +62,16 @@ public class EmailVerificationController {
     @Operation(
             summary = "이메일 인증코드 확인",
             description = """
-                    이메일로 수신한 6자리 인증코드를 검증합니다.
+            이메일로 수신한 6자리 인증코드를 검증합니다.
 
-                    - 로그인 불필요
-                    - 잘못 입력한 횟수는 최대 5회
-                    - 성공하면 verificationToken과 expiresIn 반환
-                    - verificationToken은 6자리 인증코드와 다른 값
-                    - 반환된 verificationToken을 회원가입 API에 전달
-                    - 인증코드는 성공 즉시 무효화되며 재사용 불가
-                    - verificationToken은 10분간 유효하고 한 번만 사용 가능
-                    """
+            - 로그인 불필요
+            - 잘못 입력한 횟수는 최대 5회
+            - 성공하면 verificationToken과 expiresIn 반환
+            - verificationToken은 6자리 인증코드와 다른 값
+            - 반환된 verificationToken을 회원가입 API에 전달
+            - 인증코드는 성공 즉시 무효화되며 재사용 불가
+            - verificationToken은 10분간 유효하고 한 번만 사용 가능
+            """
     )
     @SecurityRequirements
     @ApiResponses({
