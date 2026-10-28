@@ -9,6 +9,8 @@ end
 -- 기존 토큰이 일치하지 않으면 재사용 가능성으로 판단하고 세션 폐기
 if currentHash ~= ARGV[1] then
     redis.call('DEL', KEYS[1])
+    redis.call('SREM', KEYS[2], ARGV[4])
+    if redis.call('SCARD', KEYS[2]) == 0 then redis.call('DEL', KEYS[2]) end
     return -1
 end
 

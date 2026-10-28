@@ -1,6 +1,10 @@
 package com.swu.atch.config;
 
 import com.swu.atch.auth.security.SecurityErrorHandler;
+import com.swu.atch.auth.security.CurrentCredentialsFilter;
+import com.swu.atch.auth.service.AccountCredentials;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -19,7 +23,9 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChainj(
             HttpSecurity http,
-            SecurityErrorHandler securityErrorHandler
+            SecurityErrorHandler securityErrorHandler,
+            AccountCredentials credentials,
+            JsonMapper jsonMapper
     ) throws Exception {
         http
                 // JWT를 Authorization 헤더로 전달하는 API이므로 CSRF 비활성화
@@ -54,7 +60,10 @@ public class SecurityConfig {
                                 "/api/v1/auth/signup",
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/token/refresh",
-                                "/api/v1/auth/logout"
+                                "/api/v1/auth/logout",
+                                "/api/v1/auth/password-reset/code",
+                                "/api/v1/auth/password-reset/verify",
+                                "/api/v1/auth/password-reset"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
@@ -75,6 +84,8 @@ public class SecurityConfig {
                         .accessDeniedHandler(securityErrorHandler)
                 );
 
+        http.addFilterAfter(new CurrentCredentialsFilter(credentials, securityErrorHandler, jsonMapper),
+                BearerTokenAuthenticationFilter.class);
         return http.build();
     }
 

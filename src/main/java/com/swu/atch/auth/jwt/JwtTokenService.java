@@ -40,6 +40,10 @@ public class JwtTokenService {
 
     // 인증이 완료된 사용자에게 Access Token 발급
     public String issueAccessToken(Long userId) {
+        return issueAccessToken(userId, null);
+    }
+
+    public String issueAccessToken(Long userId, String credentialStamp) {
         Instant now = Instant.now();
 
         JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256)
@@ -55,6 +59,9 @@ public class JwtTokenService {
                 .expiresAt(now.plus(accessTokenTtl))
                 .id(UUID.randomUUID().toString())
                 .claim("token_use", "access")
+                .claims(values -> {
+                    if (credentialStamp != null) values.put("credential_stamp", credentialStamp);
+                })
                 .build();
 
         return jwtEncoder.encode(

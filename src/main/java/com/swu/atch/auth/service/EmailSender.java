@@ -23,11 +23,19 @@ public class EmailSender {
 
     // 회원가입용 인증코드 이메일 발송
     public void sendVerificationCode(String recipient, String code) {
+        sendCode(recipient, code, "이메일 인증코드");
+    }
+
+    public void sendPasswordResetCode(String recipient, String code) {
+        sendCode(recipient, code, "비밀번호 재설정 인증코드");
+    }
+
+    private void sendCode(String recipient, String code, String purpose) {
         SimpleMailMessage message = new SimpleMailMessage();
 
         message.setFrom(senderEmail);
         message.setTo(recipient);
-        message.setSubject("[Atch!] 이메일 인증코드");
+        message.setSubject("[Atch!] " + purpose);
         message.setText(
                 "안녕하세요, Atch!입니다.\n\n"
                         + "이메일 인증코드: " + code + "\n\n"

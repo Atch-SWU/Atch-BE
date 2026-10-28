@@ -16,6 +16,8 @@ public enum ErrorCode {
     // Refresh Token이 만료됐거나, 세션이 삭제됐거나, 이전 토큰 재사용이 감지된 경우
     REFRESH_SESSION_INVALID(HttpStatus.UNAUTHORIZED, "인증 세션이 유효하지 않습니다. 다시 로그인해주세요."),
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."),
+    CURRENT_PASSWORD_INVALID(HttpStatus.FORBIDDEN, "현재 비밀번호가 올바르지 않습니다."),
+    PASSWORD_RESET_PROOF_INVALID(HttpStatus.BAD_REQUEST, "재설정 인증이 유효하지 않습니다. 이메일 인증부터 다시 진행해주세요."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다."),
 
     EMAIL_RESEND_TOO_SOON(

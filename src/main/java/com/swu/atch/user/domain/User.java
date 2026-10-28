@@ -46,4 +46,12 @@ public class User {
     public User(String nickname) {
         this.nickname = nickname;
     }
+
+    // 기존 가입 정책과 동일한 닉네임 규칙 적용
+    public void changeNickname(String nickname) {
+        if (nickname == null || !nickname.matches("^[가-힣a-zA-Z]{2,8}$")) {
+            throw new IllegalArgumentException("닉네임은 한글 또는 영문 2~8자여야 합니다.");
+        }
+        this.nickname = nickname;
+    }
 }
