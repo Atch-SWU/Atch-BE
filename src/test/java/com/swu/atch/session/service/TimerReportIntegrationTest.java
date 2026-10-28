@@ -400,14 +400,14 @@ class TimerReportIntegrationTest extends IsolatedAuthIntegrationTest {
 
     @Test void defaultRuntimeExposesImplementedOpenApiAndRecordsIsolatedTargets() throws Exception {
         assertThat(context.containsBean("sessionController")).isTrue();assertThat(context.containsBean("reportController")).isTrue();
-        assertThat(context.containsBean("taskDecompositionController")).isFalse();assertThat(context.containsBean("voyageClient")).isFalse();
+        assertThat(context.containsBean("taskDecompositionController")).isTrue();assertThat(context.getBean(com.swu.atch.ai.client.VoyageGateway.class).enabled()).isFalse();
         assertThat(context.containsBean("dailySettlementScheduler")).isFalse();
         var response=mvc.perform(get("/v3/api-docs")).andReturn().getResponse();assertThat(response.getStatus()).isEqualTo(200);
         var api=json.readTree(response.getContentAsString());
         for(String path:List.of("/api/v1/timer/current","/api/v1/todos/{todoId}/timer/start","/api/v1/reports/daily","/api/v1/settings/timer")){
             assertThat(api.path("paths").has(path)).isTrue();assertThat(api.path("paths").path(path).toString()).doesNotContain("현재 501","Service 미연결");
         }
-        assertThat(api.path("paths").has("/api/v1/ai/task-decompositions")).isFalse();
+        assertThat(api.path("paths").has("/api/v1/ai/task-decompositions")).isTrue();
         var directory=java.nio.file.Path.of("build/verification/session-report-20261029");java.nio.file.Files.createDirectories(directory);
         java.nio.file.Files.writeString(directory.resolve("openapi.json"),response.getContentAsString());
         var ds=context.getBean(javax.sql.DataSource.class);var flyway=context.getBean(org.flywaydb.core.Flyway.class);

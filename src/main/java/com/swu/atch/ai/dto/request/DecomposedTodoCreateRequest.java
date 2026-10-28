@@ -14,7 +14,7 @@ import java.util.UUID;
 // 최종 승인한 세부 Todo 일괄 생성. 원본 부모는 생성하지 않음
 @Schema(description = "최종 승인한 세부 Todo 일괄 생성. 원본 부모는 생성하지 않음")
 public record DecomposedTodoCreateRequest(
-        @NotNull @Schema(description = "동일 본문 재전송을 식별하는 생성 요청 ID. 영속 중복 방지는 후속 구현", requiredMode = Schema.RequiredMode.REQUIRED) UUID creationRequestId,
+        @NotNull @Schema(description = "동일 본문 재전송을 식별하는 생성 요청 ID. 생성 결과와 동일 트랜잭션으로 보존", requiredMode = Schema.RequiredMode.REQUIRED) UUID creationRequestId,
         @NotNull @Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID decompositionDraftId,
         @NotBlank @Size(max = 200) @Schema(description = "원본 작업명. 생성할 모든 세부 Todo에 복사", example = "기획안 초안 작성", requiredMode = Schema.RequiredMode.REQUIRED) String sourceTaskName,
         @Size(max = 2000) String memo,

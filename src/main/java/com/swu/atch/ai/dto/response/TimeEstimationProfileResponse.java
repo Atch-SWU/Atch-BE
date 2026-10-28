@@ -11,7 +11,7 @@ public record TimeEstimationProfileResponse(
         double profileReliabilityScore, Reliability reliability, Instant updatedAt,
         @Schema(description = "이번에 실제 계산한 기준 시각. 저장본 조회에서 근거가 없으면 null") Instant calculatedAsOf
 ) {
-    public enum State { AVAILABLE, NO_HISTORY }
+    public enum State { AVAILABLE, NO_HISTORY, NOT_CALCULATED }
     public enum Source { STORED_SNAPSHOT, FRESH_COMPUTATION }
     public enum Reliability { LOW, MEDIUM, HIGH }
 }

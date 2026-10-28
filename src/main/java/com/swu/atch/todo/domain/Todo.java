@@ -299,6 +299,19 @@ public class Todo {
         this.userEstimatedDurationMinutes = userEstimatedDurationMinutes;
     }
 
+    // 서버가 소유권·입력·제안 토큰을 검증한 뒤 선택값만 적용한다.
+    public void applyEstimateChoice(Integer aiMinutes, SelectedEstimateType type) {
+        requireActive();
+        if (status == TodoStatus.IN_PROGRESS || status == TodoStatus.COMPLETED
+                || type == null || (aiMinutes != null && aiMinutes <= 0)
+                || (type == SelectedEstimateType.AI && aiMinutes == null)) {
+            throw new IllegalArgumentException("예상시간 선택 상태가 올바르지 않습니다.");
+        }
+        aiEstimatedDurationMinutes = aiMinutes;
+        selectedEstimateType = type;
+        userEstimateSource = UserEstimateSource.USER_INPUT;
+    }
+
     // 반복 완료는 최초 완료 시각을 보존한다. Session 종료는 Service에서 함께 처리한다.
     public void complete(Instant completedAt) {
         requireActive();

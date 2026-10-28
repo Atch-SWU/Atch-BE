@@ -46,7 +46,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 // 실제 Controller의 인증·DTO·OpenAPI 계약을 유지한다. 상태 전환은 별도 통합 테스트에서 검증한다.
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
-@TestPropertySource(properties = {"springdoc.api-docs.enabled=true", "app.api.contracts.enabled=true"})
+@TestPropertySource(properties = {"springdoc.api-docs.enabled=true", "app.api.contracts.enabled=false"})
 @Transactional
 class SessionApiContractTest extends IsolatedAuthIntegrationTest {
     @Autowired MockMvc mvc;
@@ -156,17 +156,12 @@ class SessionApiContractTest extends IsolatedAuthIntegrationTest {
         assertThat(idle.path("serverTime").asText()).isEqualTo("2026-10-28T14:50:00Z");
     }
 
+    @Autowired org.springframework.context.ApplicationContext applicationContext;
     @Test
-    void onlyUnimplementedAiControllersRequireContractOptIn() {
-        var types = new Class<?>[]{TimeEstimationProfileController.class, SimilarTodoController.class,
-                TimePredictionController.class, TaskDecompositionController.class};
-        // 실제 Spring 조건 평가로 기본 미등록을 확인한다. 공통 설정·인증 프로필을 바꾸지 않는다.
-        for (boolean explicitFalse : List.of(false, true)) {
-            var runner = new ApplicationContextRunner().withUserConfiguration(types);
-            if (explicitFalse) runner = runner.withPropertyValues("app.api.contracts.enabled=false");
-            runner.run(application -> {
-                for (var type : types) assertThat(application).doesNotHaveBean(type);
-            });
+    void implementedAiControllersAreAvailableWithoutContractOptIn() {
+        for (var type : new Class<?>[]{TimeEstimationProfileController.class, SimilarTodoController.class,
+                TimePredictionController.class, TaskDecompositionController.class}) {
+            assertThat(applicationContext.getBean(type)).isNotNull();
         }
     }
 

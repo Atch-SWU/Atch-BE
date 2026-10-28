@@ -31,8 +31,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ) {
         ErrorCode errorCode = ex.getErrorCode();
 
+        var headers = new HttpHeaders();
+        if (errorCode == ErrorCode.AI_RATE_LIMITED) headers.set(HttpHeaders.RETRY_AFTER, "60");
         return ResponseEntity
-                .status(errorCode.getStatus())
+                .status(errorCode.getStatus()).headers(headers)
                 .body(ErrorResponse.of(
                         errorCode,
                         request.getRequestURI()

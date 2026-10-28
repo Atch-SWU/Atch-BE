@@ -202,7 +202,9 @@ class TodoApiContractTest extends IsolatedAuthIntegrationTest {
             var media = body.path("content").path("application/json");
             assertThat(media.path("schema").path("$ref").asText()).isEqualTo("#/components/schemas/" + entry.getValue());
             var properties = schemas.path(entry.getValue()).path("properties");
-            assertThat(names(properties)).containsExactlyInAnyOrder("title", "memo", "startDate", "startTime", "dueDate", "dueTime", "allDay", "userEstimatedDurationMinutes");
+            var expectedFields = new java.util.ArrayList<>(List.of("title", "memo", "startDate", "startTime", "dueDate", "dueTime", "allDay", "userEstimatedDurationMinutes", "estimateChoice"));
+            if (entry.getValue().equals("TodoCreateRequest")) expectedFields.add("creationRequestId");
+            assertThat(names(properties)).containsExactlyInAnyOrderElementsOf(expectedFields);
             assertThat(properties.path("userId").isMissingNode()).isTrue();
             assertThat(schemas.path(entry.getValue()).path("required").toString())
                     .contains("title", "startDate", "dueDate", "allDay", "userEstimatedDurationMinutes");

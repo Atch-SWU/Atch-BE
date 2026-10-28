@@ -231,7 +231,23 @@ class FlywayMigrationTest {
         assertThat(migration(dataSource,"12").migrate().migrationsExecuted).isZero();
         assertThat(jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank")).isEqualTo(historyV12);
         for(var item:beforeV12.entrySet()) assertThat(jdbc.queryForList("select (to_jsonb(t)-'resume_counted')::text from " + item.getKey() + " t order by to_jsonb(t)::text",String.class)).isEqualTo(item.getValue());
-        System.out.println("V3->V9->V10->V11->V12: preserved users/auth/settings/todos/patterns/rules; "
+        jdbc.update("update todos set ai_estimated_duration_minutes=45 where id=?", todoId);
+        var beforeV13 = new java.util.LinkedHashMap<String, java.util.List<String>>();
+        for (String table : jdbc.queryForList("select tablename from pg_tables where schemaname='public' and tablename<>'flyway_schema_history'", String.class)) {
+            beforeV13.put(table, jdbc.queryForList("select to_jsonb(t)::text from " + table + " t order by to_jsonb(t)::text", String.class));
+        }
+        var v13 = migration(dataSource, "13");
+        assertThat(v13.migrate().migrationsExecuted).isEqualTo(1);
+        v13.validate();
+        assertThat(jdbc.queryForList("select * from flyway_schema_history where version<>'13' order by installed_rank")).isEqualTo(historyV12);
+        for (var item : beforeV13.entrySet()) assertThat(jdbc.queryForList("select to_jsonb(t)::text from " + item.getKey() + " t order by to_jsonb(t)::text", String.class)).isEqualTo(item.getValue());
+        assertThat(jdbc.queryForObject("select count(*) from ai_drafts where todo_id=?", Long.class, todoId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select o.state from ai_operations o join ai_drafts d on d.id=o.draft_id where d.todo_id=?", String.class, todoId)).isEqualTo("LEGACY_UNKNOWN");
+        assertThat(jdbc.queryForObject("select count(*) from ai_creation_requests", Long.class)).isZero();
+        var historyV13 = jdbc.queryForList("select * from flyway_schema_history order by installed_rank");
+        assertThat(migration(dataSource, "13").migrate().migrationsExecuted).isZero();
+        assertThat(jdbc.queryForList("select * from flyway_schema_history order by installed_rank")).isEqualTo(historyV13);
+        System.out.println("V3->V9->V10->V11->V12->V13: preserved users/auth/settings/todos/patterns/rules; "
                 + "legacy recurrence guard verified; rerun migrations=0; "
                 + "database=atch_migration_test; container=" + POSTGRES.getContainerId());
     }
