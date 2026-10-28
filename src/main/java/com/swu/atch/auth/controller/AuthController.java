@@ -8,6 +8,7 @@ import com.swu.atch.auth.service.LocalAuthService;
 import com.swu.atch.common.exception.ErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -49,7 +50,20 @@ public class AuthController {
                 - 회원가입 요청이 실패했다고 무조건 재전송하지 마세요
                 - Verification Token은 일회용입니다
                 - 응답 자체를 받지 못했다면 가입 성공 여부가 불확실할 수 있습니다
-                """
+                """,
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = SignUpRequest.class),
+                            examples = @ExampleObject(name = "이메일 인증 후 회원가입", value = """
+                                    {
+                                      "email": "user@example.com",
+                                      "password": "Atch123!",
+                                      "nickname": "엣취사용자",
+                                      "verificationToken": "verificationTokenFromVerifyResponse",
+                                      "deviceId": "550e8400-e29b-41d4-a716-446655440000"
+                                    }
+                                    """)))
     )
     @SecurityRequirements
     @ApiResponses({
@@ -88,7 +102,18 @@ public class AuthController {
                     - Access Token 15분 및 Refresh Token 14일 발급
                     - accessToken은 API Authorization 헤더에 Bearer 방식으로 사용
                     - refreshToken은 iOS Keychain에 저장하고 추후 토큰 갱신 시 사용
-                    """
+                    """,
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = LoginRequest.class),
+                            examples = @ExampleObject(name = "이메일 로그인", value = """
+                                    {
+                                      "email": "user@example.com",
+                                      "password": "Atch123!",
+                                      "deviceId": "550e8400-e29b-41d4-a716-446655440000"
+                                    }
+                                    """)))
     )
     @SecurityRequirements
     @ApiResponses({

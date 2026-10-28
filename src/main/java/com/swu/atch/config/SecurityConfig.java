@@ -16,6 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.config.Customizer;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 public class SecurityConfig {
@@ -25,11 +26,15 @@ public class SecurityConfig {
             HttpSecurity http,
             SecurityErrorHandler securityErrorHandler,
             AccountCredentials credentials,
-            JsonMapper jsonMapper
+            JsonMapper jsonMapper,
+            UrlBasedCorsConfigurationSource corsConfigurationSource
     ) throws Exception {
         http
                 // JWT를 Authorization 헤더로 전달하는 API이므로 CSRF 비활성화
                 .csrf(AbstractHttpConfigurer::disable)
+
+                // 브라우저 사전 요청을 JWT 인증보다 먼저 처리
+                .cors(cors -> cors.configurationSource(corsConfigurationSource))
 
                 // 서버 HTTP 세션을 생성하거나 사용하지 않음
                 .sessionManagement(session -> session
