@@ -45,7 +45,7 @@ public class Todo {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    // 반복 일정 규칙 ID (PTN 도메인 구현 후 FK 추가)
+    // 반복 일정 규칙 ID (V10의 사용자 소유권 복합 FK)
     @Column(name = "recurrence_rule_id")
     private Long recurrenceRuleId;
 
@@ -253,5 +253,80 @@ public class Todo {
 
         // 신규 투두는 진행 전 상태로 시작
         this.status = TodoStatus.PENDING;
+    }
+
+    // 편집 가능한 값만 변경하고 반복 회차·원본 작업명·과거 이력은 유지한다.
+    public void updateDetails(String title, String memo, Instant startAt, Instant dueAt,
+                              boolean allDay, Integer userEstimatedDurationMinutes) {
+        requireActive();
+        if (status == TodoStatus.IN_PROGRESS || status == TodoStatus.COMPLETED) {
+            throw new IllegalStateException("진행 중이거나 완료된 Todo는 바로 수정할 수 없습니다.");
+        }
+        Objects.requireNonNull(startAt, "시작 일시는 필수입니다.");
+        Objects.requireNonNull(dueAt, "마감 일시는 필수입니다.");
+        if (title == null || title.isBlank() || title.length() > 200
+                || userEstimatedDurationMinutes == null || userEstimatedDurationMinutes <= 0
+                || !dueAt.isAfter(startAt)) {
+            throw new IllegalArgumentException("Todo 편집 값이 올바르지 않습니다.");
+        }
+        if (allDay && (!startAt.atZone(SERVICE_ZONE).toLocalTime().equals(LocalTime.MIDNIGHT)
+                || !dueAt.atZone(SERVICE_ZONE).toLocalTime().equals(LocalTime.MIDNIGHT)
+                || !dueAt.atZone(SERVICE_ZONE).toLocalDate()
+                .equals(startAt.atZone(SERVICE_ZONE).toLocalDate().plusDays(1)))) {
+            throw new IllegalArgumentException("하루종일 일정의 시작·종료 경계가 올바르지 않습니다.");
+        }
+
+        String normalizedTitle = title.trim();
+        boolean durationChanged = !Objects.equals(this.userEstimatedDurationMinutes, userEstimatedDurationMinutes);
+        boolean predictionInputChanged = !Objects.equals(this.title, normalizedTitle)
+                || !Objects.equals(this.memo, memo) || durationChanged;
+
+        // 생성 시의 배정 날짜 검증과 구분한다. 메모 수정으로 이월 날짜를 되돌리지 않는다.
+        LocalDate newStartDate = startAt.atZone(SERVICE_ZONE).toLocalDate();
+        if (!this.startAt.atZone(SERVICE_ZONE).toLocalDate().equals(newStartDate)) {
+            this.currentScheduleDate = newStartDate;
+        }
+        if (durationChanged) this.userEstimateSource = UserEstimateSource.USER_INPUT;
+        if (predictionInputChanged) {
+            this.aiEstimatedDurationMinutes = null;
+            this.selectedEstimateType = SelectedEstimateType.USER;
+        }
+        this.title = normalizedTitle;
+        this.memo = memo;
+        this.startAt = startAt;
+        this.dueAt = dueAt;
+        this.allDay = allDay;
+        this.userEstimatedDurationMinutes = userEstimatedDurationMinutes;
+    }
+
+    // 반복 완료는 최초 완료 시각을 보존한다. Session 종료는 Service에서 함께 처리한다.
+    public void complete(Instant completedAt) {
+        requireActive();
+        Objects.requireNonNull(completedAt, "완료 시각은 필수입니다.");
+        if (status == TodoStatus.COMPLETED) return;
+        this.status = TodoStatus.COMPLETED;
+        this.completedAt = completedAt;
+    }
+
+    // 완료 취소는 현재 상태만 변경하고 실제 집중시간·일정·이력을 지우지 않는다.
+    public void reopen() {
+        requireActive();
+        if (status != TodoStatus.COMPLETED) return;
+        this.status = TodoStatus.PENDING;
+        this.completedAt = null;
+    }
+
+    // 삭제된 회차도 보존하므로 물리 삭제나 반복 식별값 초기화를 하지 않는다.
+    public void softDelete(Instant deletedAt) {
+        Objects.requireNonNull(deletedAt, "삭제 시각은 필수입니다.");
+        if (this.deletedAt != null) return;
+        if (status == TodoStatus.IN_PROGRESS) {
+            throw new IllegalStateException("진행 중인 Todo는 바로 삭제할 수 없습니다.");
+        }
+        this.deletedAt = deletedAt;
+    }
+
+    private void requireActive() {
+        if (deletedAt != null) throw new IllegalStateException("삭제된 Todo는 변경할 수 없습니다.");
     }
 }
