@@ -31,7 +31,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
 
-// FR-TODO-001·002·004~016 및 이월 데이터의 조회·보존. 자동 이월·AI 분해는 별도 단계다.
+// FR-TODO-001·002·004~016 및 이월 데이터의 조회·보존. 자동 이월을 연결하며 AI 분해는 별도 단계다.
 // 사용자 ID와 비밀번호 상태는 요청 본문 대신 검증된 JWT에서 가져온다.
 @RestController
 @RequiredArgsConstructor
@@ -103,7 +103,7 @@ public class TodoController {
     @Operation(summary = "캘린더 Todo 존재 날짜", description = """
             from/to 범위(양 끝 포함)의 현재 배정 날짜 중 본인 Todo가 존재하는 날짜를 중복 없이 오름차순 반환합니다.
             완료는 포함하고 논리 삭제는 제외합니다. from<=to여야 합니다.
-            원래 시작~마감 구간의 겹침이나 과거 확정 통계가 아니며 자동 이월은 이번 단계에 포함하지 않습니다.
+            밀린 일일 확정·이월 후 현재 배정 날짜를 조회합니다. 원래 시작~마감 구간의 겹침이나 과거 확정 통계가 아닙니다.
             """)
     @ApiResponse(responseCode = "200", description = "Todo가 있는 날짜 목록",
             content = @Content(schema = @Schema(implementation = TodoCalendarResponse.class)))
@@ -131,7 +131,7 @@ public class TodoController {
     @Operation(summary = "Todo 편집 폼 전체 수정", description = """
             수정 가능한 폼 전체를 전송합니다. memo=null은 기존 메모 삭제입니다.
             실행 중이면 일시정지 후, 완료 상태이면 완료 취소 후 수정합니다(충돌 409).
-            제목·메모만 수정하면 이월된 배정 날짜를 유지하고, 시작 날짜를 실제 변경할 때만 재배정합니다.
+            제목·메모만 수정하면 이월된 배정 날짜를 유지하고, 시작 날짜를 실제 변경할 때만 재배정합니다. 과거 날짜로 수정해도 현재 배정 날짜는 서울 오늘보다 과거로 되돌리지 않습니다.
             반복 규칙·불변 회차 식별값은 유지합니다. 사용자 예상시간을 직접 변경하면 출처를 USER_INPUT으로 바꿉니다.
             예측 입력(작업명·메모·사용자 예상시간)이 변경되면 AI 예상값·선택을 무효화하고 사용자 예상시간을 사용합니다.
             기존 Session·Snapshot·실험 이력은 보존합니다. AI·반복 API 자체는 별도 단계입니다.
@@ -174,7 +174,7 @@ public class TodoController {
     @PostMapping(value = "/{todoId}/complete", produces = "application/json")
     @Operation(summary = "Todo 완료", description = """
             PENDING·PAUSED·IN_PROGRESS에서 완료할 수 있습니다. 서버 시각으로 완료하고 열린 Session이 있으면 함께 종료합니다.
-            이미 완료된 Todo 재요청은 최초 완료 시각과 실제시간을 유지합니다. 타이머 시작·일시정지 API는 다음 단계입니다.
+            이미 완료된 Todo 재요청은 최초 완료 시각과 실제시간을 유지합니다. 타이머 실행 중 완료 시 같은 트랜잭션으로 구간을 종료합니다.
             """)
     @ApiResponse(responseCode = "200", description = "완료된 Todo", content = @Content(schema = @Schema(implementation = TodoResponse.class)))
     @ApiResponse(responseCode = "404", description = "본인 활성 Todo 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -190,9 +190,9 @@ public class TodoController {
     // 완료 취소는 현재 상태만 되돌린다. 과거 날짜 기록이나 실제 집중시간을 소급 삭제하지 않는다.
     @PostMapping(value = "/{todoId}/reopen", produces = "application/json")
     @Operation(summary = "Todo 완료 취소", description = """
-            COMPLETED를 PENDING으로 바꾸고 completedAt을 비웁니다. 기존 배정 날짜·Session·과거 Snapshot·실험을 유지합니다.
+            COMPLETED를 PENDING으로 바꾸고 completedAt을 비웁니다. Session·과거 Snapshot·실험을 유지하고 과거 배정 날짜는 서울 오늘로 옮깁니다.
             이미 미완료 상태이면 현재 상태를 그대로 반환하며 실행 중인 Todo를 초기화하지 않습니다.
-            자동 재배정·이월·타이머 재시작은 하지 않습니다.
+            오늘 이후 배정 날짜는 유지하며 타이머를 자동 재시작하지 않습니다.
             """)
     @ApiResponse(responseCode = "200", description = "현재 Todo", content = @Content(schema = @Schema(implementation = TodoResponse.class)))
     @ApiResponse(responseCode = "404", description = "본인 활성 Todo 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

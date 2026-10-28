@@ -39,6 +39,10 @@ public class Session {
     @Column(name = "end_reason", length = 20)
     private SessionEndReason endReason;
 
+    // 기존 행은 null(과거 종료 사유로 추정), 신규 시작=false·실제 재개=true다.
+    @Column(name = "resume_counted")
+    private Boolean resumeCounted;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -55,7 +59,15 @@ public class Session {
         Session session = new Session();
         session.todo = todo;
         session.startedAt = startedAt;
+        session.resumeCounted = false;
 
+        return session;
+    }
+
+    // 완료 취소 후 일반 시작과 구분하여 일시정지·전환 뒤 실제 재개만 집계한다.
+    public static Session resume(Todo todo, Instant startedAt) {
+        var session = start(todo, startedAt);
+        session.resumeCounted = true;
         return session;
     }
 

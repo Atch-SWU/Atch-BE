@@ -25,6 +25,7 @@ public interface TodoDailySnapshotRepository
             LocalDate scheduleDate
     );
 
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "todo")
     // 사용자별 특정 날짜의 Snapshot 목록
     List<TodoDailySnapshot>
     findByUser_IdAndScheduleDateOrderByIdAsc(
