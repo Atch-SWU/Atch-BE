@@ -11,6 +11,8 @@ public enum ErrorCode {
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "입력값이 올바르지 않습니다."),
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다."),
     RESOURCE_CONFLICT(HttpStatus.CONFLICT, "요청한 작업이 현재 상태와 충돌합니다."),
+    TODO_PAUSE_REQUIRED(HttpStatus.CONFLICT, "진행 중인 Todo를 먼저 일시정지해주세요."),
+    TODO_REOPEN_REQUIRED(HttpStatus.CONFLICT, "완료된 Todo를 수정하려면 먼저 완료를 취소해주세요."),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
     // Refresh Token이 만료됐거나, 세션이 삭제됐거나, 이전 토큰 재사용이 감지된 경우

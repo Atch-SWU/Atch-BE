@@ -25,7 +25,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.MockMvcPrint;
 import org.springframework.http.HttpMethod;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -48,7 +47,7 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 
-// 실제 인증·MVC 바인딩·OpenAPI 계약만 검증한다. CRUD·소유권 조회 성공 테스트가 아니다.
+// 실제 인증·MVC 바인딩·OpenAPI 계약 검증. 전체 CRUD·소유권 회귀는 별도 통합 테스트에서 확인한다.
 // 전용 PostgreSQL/Redis·메모리 RSA·가짜 메일을 재사용하고 각 테스트의 DB 픽스처는 롤백한다.
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
 @TestPropertySource(properties = "springdoc.api-docs.enabled=true")
@@ -62,7 +61,6 @@ class TodoApiContractTest extends IsolatedAuthIntegrationTest {
     @Autowired PasswordEncoder encoder;
     @Autowired AccountCredentials credentials;
     @Autowired JwtTokenService jwtTokens;
-    @Autowired JdbcTemplate jdbc;
 
     private String accessToken;
 
@@ -84,16 +82,6 @@ class TodoApiContractTest extends IsolatedAuthIntegrationTest {
     @MethodSource("routes")
     void everyRouteRequiresAuthentication(String route) throws Exception {
         assertThat(perform(routeRequest(route), null).getStatus()).isEqualTo(401);
-    }
-
-    @ParameterizedTest
-    @MethodSource("routes")
-    void validAuthenticatedRoutesExplicitlyReturn501WithoutWritingTodos(String route) throws Exception {
-        long before = jdbc.queryForObject("select count(*) from todos", Long.class);
-        var response = perform(authenticated(routeRequest(route)), null);
-        assertThat(response.getStatus()).isEqualTo(501);
-        assertThat(json.readTree(response.getContentAsString()).path("code").asText()).isEqualTo("NOT_IMPLEMENTED");
-        assertThat(jdbc.queryForObject("select count(*) from todos", Long.class)).isEqualTo(before);
     }
 
     @ParameterizedTest
@@ -124,13 +112,14 @@ class TodoApiContractTest extends IsolatedAuthIntegrationTest {
         body.put("startTime", null);
         body.put("dueTime", null);
         body.put("memo", null);
-        for (var request : List.of(post("/api/v1/todos"), put("/api/v1/todos/1"))) {
-            assertThat(perform(authenticated(request), body).getStatus()).isEqualTo(501);
-        }
+        var created = perform(authenticated(post("/api/v1/todos")), body);
+        assertThat(created.getStatus()).isEqualTo(201);
+        long id = json.readTree(created.getContentAsString()).path("id").asLong();
+        assertThat(perform(authenticated(put("/api/v1/todos/" + id)), body).getStatus()).isEqualTo(200);
     }
 
     @Test
-    void missingOrMalformedBodyIsRejectedBeforeControllerPlaceholder() throws Exception {
+    void missingOrMalformedBodyIsRejectedBeforeService() throws Exception {
         assertThat(perform(authenticated(post("/api/v1/todos").contentType("application/json")), null).getStatus()).isEqualTo(400);
         var response = mvc.perform(authenticated(put("/api/v1/todos/1"))
                 .contentType("application/json").content("{invalid-json")).andReturn().getResponse();
@@ -146,7 +135,7 @@ class TodoApiContractTest extends IsolatedAuthIntegrationTest {
     @Test
     void listBindsMultipleStatusesAndPagingAndUsesDefaultsWhenOmitted() throws Exception {
         assertThat(perform(authenticated(get("/api/v1/todos").param("from", "2026-10-26").param("to", "2026-11-01")
-                .param("status", "PENDING,IN_PROGRESS,PAUSED").param("page", "1").param("size", "20")), null).getStatus()).isEqualTo(501);
+                .param("status", "PENDING,IN_PROGRESS,PAUSED").param("page", "1").param("size", "20")), null).getStatus()).isEqualTo(200);
         var defaults = new TodoListQuery(null, null, null, null, null, null);
         assertThat(defaults.page()).isZero();
         assertThat(defaults.size()).isEqualTo(20);
@@ -197,11 +186,11 @@ class TodoApiContractTest extends IsolatedAuthIntegrationTest {
     }
 
     @Test
-    void openApiPublishesConcreteExamplesSchemasQueriesAndInterim501() throws Exception {
+    void openApiPublishesConcreteExamplesSchemasQueriesAndFinalResponses() throws Exception {
         var response = perform(get("/v3/api-docs"), null);
         assertThat(response.getStatus()).isEqualTo(200);
         // 공개 명세는 assertion 실패 시에도 원인 확인이 가능하도록 먼저 보존한다.
-        var evidence = Path.of("build/verification/todo-contract-openapi.json");
+        var evidence = Path.of("build/verification/todo-api-openapi.json");
         Files.createDirectories(evidence.getParent());
         Files.writeString(evidence, response.getContentAsString());
         var api = json.readTree(response.getContentAsString());
@@ -229,8 +218,8 @@ class TodoApiContractTest extends IsolatedAuthIntegrationTest {
             String path = parts[1].replace("/1", "/{todoId}");
             var operation = api.path("paths").path(path).path(parts[0].toLowerCase());
             assertThat(operation.path("security").toString()).contains("bearerAuth");
-            assertThat(operation.path("description").asText()).contains("현재 501");
-            assertThat(names(operation.path("responses"))).contains("400", "401", "501", "503");
+            assertThat(operation.path("description").asText()).doesNotContain("현재 501", "Service 미연결");
+            assertThat(names(operation.path("responses"))).contains("400", "401", "503").doesNotContain("501");
             assertThat(operation.path("parameters").toString()).doesNotContain("\"name\":\"jwt\"");
         }
         var collection = api.path("paths").path("/api/v1/todos");
@@ -274,9 +263,10 @@ class TodoApiContractTest extends IsolatedAuthIntegrationTest {
         var body = new LinkedHashMap<String, Object>();
         body.put("title", "TODO API 설계");
         body.put("memo", null);
-        body.put("startDate", "2026-10-29");
+        String date = LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).plusDays(1).toString();
+        body.put("startDate", date);
         body.put("startTime", "09:00:00");
-        body.put("dueDate", "2026-10-29");
+        body.put("dueDate", date);
         body.put("dueTime", "10:00:00");
         body.put("allDay", false);
         body.put("userEstimatedDurationMinutes", 30);

@@ -6,7 +6,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 
 import java.time.LocalDate;
 
-// 캘린더의 표시 기간. from<=to 관계는 후속 Service에서 검증한다.
+// 캘린더의 표시 기간. from<=to 관계는 Service에서 검증한다.
 public record TodoDateRangeQuery(
         @NotNull(message = "조회 시작 날짜는 필수입니다.")
         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)

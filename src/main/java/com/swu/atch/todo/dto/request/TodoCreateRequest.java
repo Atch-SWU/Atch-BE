@@ -10,7 +10,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 
 // 일반 Todo 생성 입력. 사용자·상태·AI 예상값·반복 회차는 서버가 결정한다.
-// 필드 간 일정 관계와 서울 기준 오늘 검증은 후속 Service에서 처리한다.
+// 필드 간 일정 관계와 서울 기준 오늘 검증은 Service에서 처리한다.
 @Schema(description = "일반 Todo 생성. 날짜·시각 입력의 시간대는 Asia/Seoul")
 public record TodoCreateRequest(
         @NotBlank(message = "작업명은 필수입니다.")

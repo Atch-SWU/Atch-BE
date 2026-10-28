@@ -13,7 +13,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import java.time.LocalDate;
 import java.util.List;
 
-// 날짜·상태를 먼저 필터링한 뒤 페이지를 나눈다. 조합 검증은 후속 Service 책임이다.
+// 날짜·상태를 먼저 필터링한 뒤 페이지를 나눈다. 조합 검증은 Service 책임이다.
 public record TodoListQuery(
         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
         @Parameter(description = "현재 배정 날짜. from/to와 동시 사용 불가. 날짜 조건 생략 시 서울 오늘", example = "2026-10-29")

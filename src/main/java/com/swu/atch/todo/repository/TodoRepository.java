@@ -5,13 +5,36 @@ import com.swu.atch.todo.domain.TodoStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 
 // 사용자 투두 데이터 접근
 public interface TodoRepository extends JpaRepository<Todo, Long> {
+
+    // User 잠금 이후 호출한다. 반복 삭제의 멱등 처리를 위해 삭제된 본인 행도 조회한다.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from Todo t where t.id = :id and t.user.id = :userId")
+    Optional<Todo> findOwnedByIdForUpdate(@Param("id") Long id, @Param("userId") Long userId);
+
+    // 상태를 먼저 필터링한 뒤 페이지를 나눈다. 정렬은 Service의 고정 Pageable을 사용한다.
+    Page<Todo> findAllByUser_IdAndCurrentScheduleDateBetweenAndStatusInAndDeletedAtIsNull(
+            Long userId, LocalDate from, LocalDate to, Collection<TodoStatus> statuses, Pageable pageable);
+
+    @Query("""
+            select distinct t.currentScheduleDate from Todo t
+            where t.user.id = :userId and t.deletedAt is null
+              and t.currentScheduleDate between :from and :to
+            order by t.currentScheduleDate
+            """)
+    List<LocalDate> findActiveScheduleDates(@Param("userId") Long userId,
+                                          @Param("from") LocalDate from, @Param("to") LocalDate to);
 
     // 사용자 소유의 삭제되지 않은 투두 단건 조회
     Optional<Todo> findByIdAndUser_IdAndDeletedAtIsNull(
