@@ -12,6 +12,12 @@ import com.swu.atch.ai.repository.TodoEmbeddingRepository;
 import com.swu.atch.auth.domain.AuthAccount;
 import com.swu.atch.auth.domain.AuthProvider;
 import com.swu.atch.auth.repository.AuthAccountRepository;
+import com.swu.atch.recurrence.domain.RecurrenceFrequency;
+import com.swu.atch.recurrence.domain.RecurrenceRule;
+import com.swu.atch.recurrence.domain.RepeatPattern;
+import com.swu.atch.recurrence.domain.RepeatPatternStatus;
+import com.swu.atch.recurrence.repository.RecurrenceRuleRepository;
+import com.swu.atch.recurrence.repository.RepeatPatternRepository;
 import com.swu.atch.setting.domain.UserSetting;
 import com.swu.atch.setting.repository.UserSettingRepository;
 import com.swu.atch.user.repository.UserRepository;
@@ -61,8 +67,10 @@ import org.testcontainers.utility.DockerImageName;
 import javax.sql.DataSource;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -92,7 +100,7 @@ class TodoRepositoryTest {
             DockerImageName.parse("pgvector/pgvector:pg16")
                     .asCompatibleSubstituteFor("postgres")
     ).withDatabaseName("atch_todo_test")
-            .withLabel("atch.verification", "v9").withReuse(false);
+            .withLabel("atch.verification", "v10").withReuse(false);
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -114,7 +122,8 @@ class TodoRepositoryTest {
             TimeEstimationProfileRepository.class,
             AuthAccountRepository.class,
             UserSettingRepository.class,
-            UserRepository.class
+            UserRepository.class,
+            RepeatPatternRepository.class
     })
     static class JpaConfiguration {
 
@@ -168,9 +177,11 @@ class TodoRepositoryTest {
     @Autowired private AuthAccountRepository authRepository;
     @Autowired private UserSettingRepository settingRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private RepeatPatternRepository patternRepository;
+    @Autowired private RecurrenceRuleRepository ruleRepository;
 
     @Test
-    void migratesV1ThroughV9AndValidatesJpaOnTheContainer() throws SQLException {
+    void migratesV1ThroughV10AndValidatesJpaOnTheContainer() throws SQLException {
         assertThat(flyway.getConfiguration().getDataSource()).isSameAs(dataSource);
         try (var connection = dataSource.getConnection()) {
             assertThat(connection.getMetaData().getURL()).isEqualTo(POSTGRES.getJdbcUrl());
@@ -178,21 +189,21 @@ class TodoRepositoryTest {
         }
         assertThat(Arrays.stream(flyway.info().applied())
                 .map(MigrationInfo::getVersion)
-                .map(Object::toString).toList()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9");
+                .map(Object::toString).toList()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
         flyway.validate();
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history ORDER BY installed_rank", String.class))
-                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9");
+                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM flyway_schema_history WHERE success AND checksum IS NOT NULL
-                """, Long.class)).isEqualTo(9L);
+                """, Long.class)).isEqualTo(10L);
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM pg_extension WHERE extname = 'vector'", Long.class
         )).isEqualTo(1L);
         assertThat(entityManager.getEntityManagerFactory().getProperties())
                 .containsEntry("hibernate.hbm2ddl.auto", "validate");
-        System.out.println("V9 JPA: database=atch_todo_test; container=" + POSTGRES.getContainerId()
+        System.out.println("V10 JPA: database=atch_todo_test; container=" + POSTGRES.getContainerId()
                 + "; PostgreSQL=" + jdbc.queryForObject("SHOW server_version", String.class)
                 + "; vector=" + jdbc.queryForObject(
                 "SELECT extversion FROM pg_extension WHERE extname='vector'", String.class));
@@ -293,19 +304,22 @@ class TodoRepositoryTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void rejectsDuplicateOccurrencesEvenAfterSoftDeletion(boolean deleted) {
-        Todo first = persistTodo(persistUser("반복사용자"), 100L);
+        User owner = persistUser("반복사용자");
+        RecurrenceRule rule = persistRule(owner, persistPattern(owner, RecurrenceFrequency.DAILY));
+        Todo first = persistTodo(owner, rule.getId());
         if (deleted) {
             jdbc.update("UPDATE todos SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?",
                     first.getId());
         }
         assertViolation(() -> jdbc.update("""
                 INSERT INTO todos (
-                    user_id, recurrence_rule_id, recurrence_occurrence_at, title,
+                    user_id, recurrence_rule_id, recurrence_occurrence_at, recurrence_period_start_date, title,
                     start_at, due_at, current_schedule_date, all_day,
                     user_estimated_duration_minutes, user_estimate_source,
                     selected_estimate_type, status
                 )
-                SELECT user_id, recurrence_rule_id, recurrence_occurrence_at, title,
+                SELECT user_id, recurrence_rule_id, recurrence_occurrence_at,
+                    recurrence_period_start_date + 1, title,
                     start_at, due_at, current_schedule_date, all_day,
                     user_estimated_duration_minutes, user_estimate_source,
                     selected_estimate_type, status
@@ -327,7 +341,7 @@ class TodoRepositoryTest {
         return Stream.of(
                 Arguments.of("user_estimated_duration_minutes = 0", "ck_todos_user_estimate_positive"),
                 Arguments.of("selected_estimate_type = 'AI'", "ck_todos_ai_selection"),
-                Arguments.of("recurrence_rule_id = 100", "ck_todos_recurrence_pair"),
+                Arguments.of("recurrence_occurrence_at = start_at", "ck_todos_recurrence_pair"),
                 Arguments.of("due_at = start_at", "ck_todos_schedule_order"),
                 Arguments.of("title = '   '", "ck_todos_title_not_blank"),
                 Arguments.of("all_day = true, due_at = due_at - INTERVAL '1 hour'",
@@ -513,16 +527,18 @@ class TodoRepositoryTest {
     @Test
     void verifiesAllColumnTypesNullabilityKeysAndImportantIndexDefinitions() {
         // '?'는 nullable이며 나머지는 NOT NULL. Hibernate가 검사하지 않는 항목도 대조
-        Map<String, String> expected = Map.of(
-                "users", "id:bigint,nickname:varchar(8),bio:varchar(255)?,onboarding_completed_at:timestamptz?,created_at:timestamptz,updated_at:timestamptz",
-                "auth_accounts", "id:bigint,user_id:bigint,provider:varchar(20),email:varchar(320)?,password_hash:varchar(255)?,provider_user_id:varchar(255)?,last_login_at:timestamptz?,created_at:timestamptz,updated_at:timestamptz",
-                "user_settings", "user_id:bigint,task_switch_restriction_enabled:boolean,task_switch_wait_minutes:integer,repeat_recommendation_enabled:boolean,created_at:timestamptz,updated_at:timestamptz",
-                "todos", "id:bigint,user_id:bigint,recurrence_rule_id:bigint?,recurrence_occurrence_at:timestamptz?,title:varchar(200),source_task_name:varchar(200)?,memo:text?,start_at:timestamptz,due_at:timestamptz,current_schedule_date:date,all_day:boolean,user_estimated_duration_minutes:integer,user_estimate_source:varchar(30),ai_estimated_duration_minutes:integer?,selected_estimate_type:varchar(20),status:varchar(30),completed_at:timestamptz?,created_at:timestamptz,updated_at:timestamptz,deleted_at:timestamptz?",
-                "sessions", "id:bigint,todo_id:bigint,started_at:timestamptz,ended_at:timestamptz?,duration_seconds:integer?,end_reason:varchar(20)?,created_at:timestamptz,updated_at:timestamptz",
-                "todo_daily_snapshots", "id:bigint,todo_id:bigint,user_id:bigint,schedule_date:date,status_at_day_end:varchar(30),start_at_snapshot:timestamptz,due_at_snapshot:timestamptz,completed_at_snapshot:timestamptz?,was_rolled_over:boolean,was_overdue:boolean,snapshot_at:timestamptz,created_at:timestamptz",
-                "time_estimation_profiles", "id:bigint,user_id:bigint,duration_correction_factor:float8,sample_count:integer,log_ratio_stddev:float8?,underestimation_rate:float8,profile_reliability_score:float8,created_at:timestamptz,updated_at:timestamptz",
-                "todo_embeddings", "todo_id:bigint,embedding:vector(1024),embedding_model:varchar(100),source_text_hash:char(64),created_at:timestamptz,updated_at:timestamptz",
-                "time_prediction_experiments", "id:bigint,prediction_run_id:uuid,todo_id:bigint,user_id:bigint,strategy_type:varchar(40),predicted_minutes:integer,actual_minutes:integer?,absolute_error_minutes:integer?,absolute_percentage_error:float8?,baseline_prediction_minutes:integer?,duration_correction_factor:float8?,simple_factor:float8?,profile_reliability_score:float8?,sample_count:integer?,log_ratio_stddev:float8?,underestimation_rate:float8?,context_adjustment_factor:float8?,similar_todo_ids:jsonb?,reason_codes:jsonb?,model_name:varchar(100)?,prompt_version:varchar(50)?,embedding_model:varchar(100)?,created_at:timestamptz,evaluated_at:timestamptz?"
+        Map<String, String> expected = Map.ofEntries(
+                Map.entry("users", "id:bigint,nickname:varchar(8),bio:varchar(255)?,onboarding_completed_at:timestamptz?,created_at:timestamptz,updated_at:timestamptz"),
+                Map.entry("auth_accounts", "id:bigint,user_id:bigint,provider:varchar(20),email:varchar(320)?,password_hash:varchar(255)?,provider_user_id:varchar(255)?,last_login_at:timestamptz?,created_at:timestamptz,updated_at:timestamptz"),
+                Map.entry("user_settings", "user_id:bigint,task_switch_restriction_enabled:boolean,task_switch_wait_minutes:integer,repeat_recommendation_enabled:boolean,created_at:timestamptz,updated_at:timestamptz"),
+                Map.entry("todos", "id:bigint,user_id:bigint,recurrence_rule_id:bigint?,recurrence_occurrence_at:timestamptz?,recurrence_period_start_date:date?,title:varchar(200),source_task_name:varchar(200)?,memo:text?,start_at:timestamptz,due_at:timestamptz,current_schedule_date:date,all_day:boolean,user_estimated_duration_minutes:integer,user_estimate_source:varchar(30),ai_estimated_duration_minutes:integer?,selected_estimate_type:varchar(20),status:varchar(30),completed_at:timestamptz?,created_at:timestamptz,updated_at:timestamptz,deleted_at:timestamptz?"),
+                Map.entry("sessions", "id:bigint,todo_id:bigint,started_at:timestamptz,ended_at:timestamptz?,duration_seconds:integer?,end_reason:varchar(20)?,created_at:timestamptz,updated_at:timestamptz"),
+                Map.entry("todo_daily_snapshots", "id:bigint,todo_id:bigint,user_id:bigint,schedule_date:date,status_at_day_end:varchar(30),start_at_snapshot:timestamptz,due_at_snapshot:timestamptz,completed_at_snapshot:timestamptz?,was_rolled_over:boolean,was_overdue:boolean,snapshot_at:timestamptz,created_at:timestamptz"),
+                Map.entry("time_estimation_profiles", "id:bigint,user_id:bigint,duration_correction_factor:float8,sample_count:integer,log_ratio_stddev:float8?,underestimation_rate:float8,profile_reliability_score:float8,created_at:timestamptz,updated_at:timestamptz"),
+                Map.entry("todo_embeddings", "todo_id:bigint,embedding:vector(1024),embedding_model:varchar(100),source_text_hash:char(64),created_at:timestamptz,updated_at:timestamptz"),
+                Map.entry("time_prediction_experiments", "id:bigint,prediction_run_id:uuid,todo_id:bigint,user_id:bigint,strategy_type:varchar(40),predicted_minutes:integer,actual_minutes:integer?,absolute_error_minutes:integer?,absolute_percentage_error:float8?,baseline_prediction_minutes:integer?,duration_correction_factor:float8?,simple_factor:float8?,profile_reliability_score:float8?,sample_count:integer?,log_ratio_stddev:float8?,underestimation_rate:float8?,context_adjustment_factor:float8?,similar_todo_ids:jsonb?,reason_codes:jsonb?,model_name:varchar(100)?,prompt_version:varchar(50)?,embedding_model:varchar(100)?,created_at:timestamptz,evaluated_at:timestamptz?"),
+                Map.entry("repeat_patterns", "id:bigint,user_id:bigint,task_name:varchar(200),frequency:varchar(20),day_of_week:varchar(10)?,scheduled_time:time,occurrence_count:integer,status:varchar(20),last_occurrence_date:date,last_suggested_at:timestamptz?,created_at:timestamptz,updated_at:timestamptz"),
+                Map.entry("recurrence_rules", "id:bigint,user_id:bigint,source_pattern_id:bigint,task_name:varchar(200),memo:text?,frequency:varchar(20),day_of_week:varchar(10)?,scheduled_time:time,default_deadline_offset_minutes:integer,default_user_estimated_duration_minutes:integer,enabled:boolean,created_at:timestamptz,updated_at:timestamptz,deleted_at:timestamptz?")
         );
         expected.forEach((table, columns) -> {
             var actual = jdbc.queryForList("""
@@ -534,20 +550,21 @@ class TodoRepositoryTest {
                         AND a.attnum > 0 AND NOT a.attisdropped
                     """, String.class, table).stream()
                     .map(s -> s.replace("timestamp with time zone", "timestamptz")
+                            .replace("time without time zone", "time")
                             .replace("character varying", "varchar")
                             .replace("character(", "char(").replace("double precision", "float8"))
                     .toList();
             assertThat(actual).as(table).containsExactlyInAnyOrder(columns.split(","));
         });
-        assertThat(entityManager.getMetamodel().getEntities()).hasSize(9);
+        assertThat(entityManager.getMetamodel().getEntities()).hasSize(11);
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM information_schema.columns
                 WHERE table_schema='public' AND is_identity='YES'
-                """, Long.class)).isEqualTo(7);
+                """, Long.class)).isEqualTo(9);
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
                 WHERE n.nspname='public' AND c.contype='f' AND c.confdeltype='a'
-                """, Long.class)).isEqualTo(10);
+                """, Long.class)).isEqualTo(14);
         assertThat(jdbc.queryForList("""
                 SELECT child.relname || '.' || ca.attname || '->' || parent.relname || '.' || pa.attname
                 FROM pg_constraint c JOIN pg_class child ON child.oid=c.conrelid
@@ -561,15 +578,33 @@ class TodoRepositoryTest {
                 "sessions.todo_id->todos.id", "todo_daily_snapshots.todo_id->todos.id",
                 "todo_daily_snapshots.user_id->users.id", "time_estimation_profiles.user_id->users.id",
                 "todo_embeddings.todo_id->todos.id", "time_prediction_experiments.todo_id->todos.id",
-                "time_prediction_experiments.user_id->users.id");
+                "time_prediction_experiments.user_id->users.id", "repeat_patterns.user_id->users.id",
+                "recurrence_rules.user_id->users.id", "recurrence_rules.source_pattern_id->repeat_patterns.id",
+                "todos.recurrence_rule_id->recurrence_rules.id");
+        assertThat(jdbc.queryForObject("""
+                SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                WHERE conname='fk_recurrence_rules_pattern_owner'
+                """, String.class)).isEqualTo(
+                "FOREIGN KEY (source_pattern_id, user_id) REFERENCES repeat_patterns(id, user_id)");
+        assertThat(jdbc.queryForObject("""
+                SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                WHERE conname='fk_todos_recurrence_rule_owner'
+                """, String.class)).isEqualTo(
+                "FOREIGN KEY (recurrence_rule_id, user_id) REFERENCES recurrence_rules(id, user_id)");
         assertThat(jdbc.queryForList("""
                 SELECT conname FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
                 WHERE n.nspname='public' AND c.contype='c'
-                """, String.class)).hasSize(33).contains("ck_auth_accounts_provider", "ck_auth_accounts_fields");
+                """, String.class)).hasSize(44).contains("ck_auth_accounts_provider", "ck_auth_accounts_fields",
+                        "ck_repeat_patterns_task_name", "ck_repeat_patterns_frequency",
+                        "ck_repeat_patterns_day_of_week", "ck_repeat_patterns_occurrence_count",
+                        "ck_repeat_patterns_status", "ck_recurrence_rules_task_name",
+                        "ck_recurrence_rules_frequency", "ck_recurrence_rules_day_of_week",
+                        "ck_recurrence_rules_deadline_offset", "ck_recurrence_rules_user_estimate",
+                        "ck_todos_recurrence_period_pair");
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM pg_constraint
                 WHERE conrelid='todos'::regclass AND contype='f'
-                """, Long.class)).isEqualTo(1);
+                """, Long.class)).isEqualTo(2);
         for (String table : expected.keySet()) {
             String pk = table.equals("user_settings") ? "user_id"
                     : table.equals("todo_embeddings") ? "todo_id" : "id";
@@ -589,6 +624,17 @@ class TodoRepositoryTest {
                 .contains("UNIQUE", "(recurrence_rule_id, recurrence_occurrence_at)",
                         "WHERE (recurrence_rule_id IS NOT NULL)")
                 .doesNotContain("deleted_at");
+        assertThat(indexes.get("uq_todos_recurrence_period"))
+                .contains("UNIQUE", "(recurrence_rule_id, recurrence_period_start_date)",
+                        "WHERE (recurrence_rule_id IS NOT NULL)").doesNotContain("deleted_at");
+        assertThat(indexes.get("uq_recurrence_rules_source_pattern"))
+                .contains("UNIQUE", "(source_pattern_id)").doesNotContain("WHERE");
+        assertThat(indexes.get("uq_repeat_patterns_id_user")).contains("UNIQUE", "(id, user_id)");
+        assertThat(indexes.get("uq_recurrence_rules_id_user")).contains("UNIQUE", "(id, user_id)");
+        assertThat(indexes.get("ix_repeat_patterns_user_status"))
+                .contains("(user_id, status, last_suggested_at DESC, id DESC)");
+        assertThat(indexes.get("ix_recurrence_rules_user_active"))
+                .contains("(user_id, enabled, id)", "WHERE (deleted_at IS NULL)");
         assertThat(indexes.get("ix_todos_user_schedule_active"))
                 .contains("(user_id, current_schedule_date, start_at, id)", "WHERE (deleted_at IS NULL)");
         assertThat(indexes.get("ix_todos_user_status_active"))
@@ -1136,6 +1182,215 @@ class TodoRepositoryTest {
                 .extracting(TimePredictionExperiment::getId).containsExactly(experiment.getId());
     }
 
+    @Test
+    void savesRecurrenceGraphAndQueriesOwnedPatternsAndRules() {
+        User owner = persistUser("반복소유자");
+        User other = persistUser("다른반복자");
+        RepeatPattern daily = persistPattern(owner, RecurrenceFrequency.DAILY);
+        RepeatPattern weekly = persistPattern(owner, RecurrenceFrequency.WEEKLY);
+        RepeatPattern recent = persistPattern(owner, RecurrenceFrequency.DAILY);
+        RepeatPattern foreign = persistPattern(other, RecurrenceFrequency.WEEKLY);
+        RepeatPattern unused = persistPattern(owner, RecurrenceFrequency.DAILY);
+        RecurrenceRule active = persistRule(owner, daily);
+        RecurrenceRule disabled = persistRule(owner, weekly);
+        RecurrenceRule deleted = persistRule(owner, recent);
+        persistRule(other, foreign);
+        Todo todo = persistTodo(owner, active.getId());
+
+        assertThat(daily.getStatus()).isEqualTo(RepeatPatternStatus.DETECTING);
+        assertThat(daily.getLastSuggestedAt()).isNull();
+        assertThat(active.isEnabled()).isTrue();
+        assertThat(active.getDeletedAt()).isNull();
+        assertThat(active.getFrequency()).isEqualTo(RecurrenceFrequency.DAILY);
+        assertThat(disabled.getFrequency()).isEqualTo(RecurrenceFrequency.WEEKLY);
+
+        // 상태 변경·삭제 기능의 구현이 아닌 Repository 조회용 SQL 픽스처
+        jdbc.update("""
+                UPDATE repeat_patterns SET status='SUGGESTED', last_suggested_at=?
+                WHERE id IN (?, ?, ?)
+                """, Timestamp.from(START), daily.getId(), weekly.getId(), foreign.getId());
+        jdbc.update("UPDATE repeat_patterns SET status='SUGGESTED', last_suggested_at=? WHERE id=?",
+                Timestamp.from(START.plusSeconds(60)), recent.getId());
+        jdbc.update("UPDATE recurrence_rules SET enabled=false WHERE id=?", disabled.getId());
+        jdbc.update("UPDATE recurrence_rules SET deleted_at=? WHERE id=?",
+                Timestamp.from(DUE), deleted.getId());
+        entityManager.clear();
+
+        RepeatPattern reloaded = patternRepository.findByIdAndUser_Id(weekly.getId(), owner.getId())
+                .orElseThrow();
+        assertThat(reloaded.getUser().getId()).isEqualTo(owner.getId());
+        assertThat(reloaded.getFrequency()).isEqualTo(RecurrenceFrequency.WEEKLY);
+        assertThat(reloaded.getDayOfWeek()).isEqualTo(DayOfWeek.WEDNESDAY);
+        assertThat(reloaded.getScheduledTime()).isEqualTo(LocalTime.of(9, 30));
+        assertThat(reloaded.getOccurrenceCount()).isEqualTo(3);
+        assertThat(reloaded.getLastOccurrenceDate()).isEqualTo(SCHEDULE_DATE);
+        assertThat(reloaded.getLastSuggestedAt()).isEqualTo(START);
+        assertThat(reloaded.getCreatedAt()).isNotNull();
+        assertThat(reloaded.getUpdatedAt()).isNotNull();
+        assertThat(patternRepository.findByIdAndUser_Id(weekly.getId(), other.getId())).isEmpty();
+        assertThat(patternRepository.findAllByUser_IdAndStatusOrderByLastSuggestedAtDescIdDesc(
+                owner.getId(), RepeatPatternStatus.SUGGESTED))
+                .extracting(RepeatPattern::getId).containsExactly(recent.getId(), weekly.getId(), daily.getId());
+
+        RecurrenceRule reloadedRule = ruleRepository
+                .findByIdAndUser_IdAndDeletedAtIsNull(active.getId(), owner.getId()).orElseThrow();
+        assertThat(reloadedRule.getSourcePattern().getId()).isEqualTo(daily.getId());
+        assertThat(reloadedRule.getUser().getId()).isEqualTo(owner.getId());
+        assertThat(reloadedRule.getDayOfWeek()).isNull();
+        assertThat(reloadedRule.getScheduledTime()).isEqualTo(LocalTime.of(9, 30));
+        assertThat(reloadedRule.getTaskName()).isEqualTo("반복 작업");
+        assertThat(reloadedRule.getMemo()).isEqualTo("검증 메모");
+        assertThat(reloadedRule.getDefaultDeadlineOffsetMinutes()).isEqualTo(60);
+        assertThat(reloadedRule.getDefaultUserEstimatedDurationMinutes()).isEqualTo(30);
+        assertThat(reloadedRule.getCreatedAt()).isNotNull();
+        assertThat(reloadedRule.getUpdatedAt()).isNotNull();
+        assertThat(ruleRepository.findByIdAndUser_IdAndDeletedAtIsNull(active.getId(), other.getId())).isEmpty();
+        assertThat(ruleRepository.findByIdAndUser_IdAndDeletedAtIsNull(deleted.getId(), owner.getId())).isEmpty();
+        assertThat(ruleRepository.findAllByUser_IdAndDeletedAtIsNullOrderByIdDesc(owner.getId()))
+                .extracting(RecurrenceRule::getId).containsExactly(disabled.getId(), active.getId());
+        assertThat(ruleRepository.findAllByUser_IdAndEnabledTrueAndDeletedAtIsNullOrderByIdAsc(owner.getId()))
+                .extracting(RecurrenceRule::getId).containsExactly(active.getId());
+        assertThat(ruleRepository.existsBySourcePattern_Id(recent.getId())).isTrue();
+        assertThat(ruleRepository.existsBySourcePattern_Id(unused.getId())).isFalse();
+
+        Todo reloadedTodo = todoRepository.findByIdAndUser_IdAndDeletedAtIsNull(todo.getId(), owner.getId())
+                .orElseThrow();
+        assertThat(reloadedTodo.getRecurrenceRuleId()).isEqualTo(active.getId());
+        assertThat(reloadedTodo.getRecurrenceOccurrenceAt()).isEqualTo(START);
+        assertThat(reloadedTodo.getRecurrencePeriodStartDate()).isEqualTo(SCHEDULE_DATE);
+        assertThat(reloadedTodo.getUserEstimateSource()).isEqualTo(UserEstimateSource.RECURRENCE_TEMPLATE);
+        assertThat(todoRepository.findByIdAndUser_IdAndDeletedAtIsNull(todo.getId(), other.getId())).isEmpty();
+    }
+
+    @Test
+    void rejectsInvalidRecurrenceConstructionBeforePersistence() {
+        User owner = persistUser("생성검사자");
+        User other = persistUser("다른생성자");
+        RepeatPattern pattern = persistPattern(owner, RecurrenceFrequency.DAILY);
+        assertThrows(IllegalArgumentException.class, () -> ruleBuilder(other, pattern).build());
+        assertThrows(IllegalArgumentException.class, () -> patternBuilder(owner, RecurrenceFrequency.DAILY)
+                .dayOfWeek(DayOfWeek.MONDAY).build());
+        assertThrows(IllegalArgumentException.class, () -> patternBuilder(owner, RecurrenceFrequency.WEEKLY)
+                .dayOfWeek(null).build());
+        assertThrows(IllegalArgumentException.class, () -> patternBuilder(owner, RecurrenceFrequency.DAILY)
+                .occurrenceCount(0).build());
+        assertThrows(NullPointerException.class, () -> patternBuilder(owner, RecurrenceFrequency.DAILY)
+                .scheduledTime(null).build());
+        assertThrows(IllegalArgumentException.class, () -> ruleBuilder(owner, pattern)
+                .dayOfWeek(DayOfWeek.MONDAY).build());
+        assertThrows(IllegalArgumentException.class, () -> ruleBuilder(owner, pattern)
+                .defaultDeadlineOffsetMinutes(0).build());
+        assertThrows(IllegalArgumentException.class, () -> ruleBuilder(owner, pattern)
+                .defaultUserEstimatedDurationMinutes(0).build());
+        assertThrows(NullPointerException.class, () -> ruleBuilder(owner, pattern).sourcePattern(null).build());
+    }
+
+    @ParameterizedTest(name = "{0}: {1}")
+    @MethodSource("recurrenceViolations")
+    void rejectsRecurrenceIntegrityViolations(String kind, String assignment, String sqlState, String constraint) {
+        User owner = persistUser("반복제약자");
+        User other = persistUser("다른제약자");
+        RepeatPattern pattern = persistPattern(owner, RecurrenceFrequency.DAILY);
+        RecurrenceRule rule = persistRule(owner, pattern);
+        switch (kind) {
+            case "rule-owner" -> assertViolation(() -> jdbc.update(
+                    "UPDATE recurrence_rules SET user_id=? WHERE id=?", other.getId(), rule.getId()),
+                    sqlState, constraint);
+            case "rule-source", "rule-source-deleted" -> {
+                if (kind.endsWith("deleted")) {
+                    jdbc.update("UPDATE recurrence_rules SET deleted_at=? WHERE id=?",
+                            Timestamp.from(DUE), rule.getId());
+                }
+                assertViolation(() -> jdbc.update("""
+                        INSERT INTO recurrence_rules (user_id, source_pattern_id, task_name, frequency,
+                            scheduled_time, default_deadline_offset_minutes,
+                            default_user_estimated_duration_minutes, enabled)
+                        SELECT user_id, source_pattern_id, task_name, frequency, scheduled_time,
+                            default_deadline_offset_minutes, default_user_estimated_duration_minutes, enabled
+                        FROM recurrence_rules WHERE id=?
+                        """, rule.getId()), sqlState, constraint);
+            }
+            case "pattern-day", "rule-day" -> {
+                String table = kind.equals("pattern-day") ? "repeat_patterns" : "recurrence_rules";
+                Long id = kind.equals("pattern-day") ? pattern.getId() : rule.getId();
+                assertViolation(() -> jdbc.update("UPDATE " + table + " SET " + assignment + " WHERE id=?", id),
+                        sqlState, constraint);
+            }
+            case "todo-owner", "todo-null", "period", "period-deleted" -> {
+                Todo todo = persistTodo(owner, rule.getId());
+                if (kind.equals("todo-owner")) {
+                    assertViolation(() -> jdbc.update("UPDATE todos SET user_id=? WHERE id=?",
+                            other.getId(), todo.getId()), sqlState, constraint);
+                } else if (kind.equals("todo-null")) {
+                    assertViolation(() -> jdbc.update("UPDATE todos SET " + assignment + " WHERE id=?",
+                            todo.getId()), sqlState, constraint);
+                } else {
+                    if (kind.endsWith("deleted")) {
+                        jdbc.update("UPDATE todos SET deleted_at=? WHERE id=?", Timestamp.from(DUE), todo.getId());
+                    }
+                    // 기존 시각 UNIQUE에 가려지지 않도록 최초 예정 시각만 다르게 지정
+                    assertViolation(() -> jdbc.update("""
+                            INSERT INTO todos (user_id, recurrence_rule_id, recurrence_occurrence_at,
+                                recurrence_period_start_date, title, start_at, due_at, current_schedule_date,
+                                all_day, user_estimated_duration_minutes, user_estimate_source,
+                                selected_estimate_type, status)
+                            SELECT user_id, recurrence_rule_id, recurrence_occurrence_at + INTERVAL '1 minute',
+                                recurrence_period_start_date, title, start_at, due_at, current_schedule_date,
+                                all_day, user_estimated_duration_minutes, user_estimate_source,
+                                selected_estimate_type, status FROM todos WHERE id=?
+                            """, todo.getId()), sqlState, constraint);
+                }
+            }
+            default -> throw new IllegalArgumentException("알 수 없는 제약 사례: " + kind);
+        }
+    }
+
+    static Stream<Arguments> recurrenceViolations() {
+        return Stream.of(
+                Arguments.of("rule-owner", "", "23503", "fk_recurrence_rules_pattern_owner"),
+                Arguments.of("todo-owner", "", "23503", "fk_todos_recurrence_rule_owner"),
+                Arguments.of("rule-source", "", "23505", "uq_recurrence_rules_source_pattern"),
+                Arguments.of("rule-source-deleted", "", "23505", "uq_recurrence_rules_source_pattern"),
+                Arguments.of("period", "", "23505", "uq_todos_recurrence_period"),
+                Arguments.of("period-deleted", "", "23505", "uq_todos_recurrence_period"),
+                Arguments.of("todo-null", "recurrence_rule_id=NULL, recurrence_occurrence_at=NULL",
+                        "23514", "ck_todos_recurrence_period_pair"),
+                Arguments.of("todo-null", "recurrence_rule_id=NULL, recurrence_period_start_date=NULL",
+                        "23514", "ck_todos_recurrence_pair"),
+                Arguments.of("todo-null", "recurrence_rule_id=NULL", "23514", "ck_todos_recurrence_p"),
+                Arguments.of("todo-null", "recurrence_occurrence_at=NULL, recurrence_period_start_date=NULL",
+                        "23514", "ck_todos_recurrence_p"),
+                Arguments.of("todo-null", "recurrence_occurrence_at=NULL", "23514", "ck_todos_recurrence_pair"),
+                Arguments.of("todo-null", "recurrence_period_start_date=NULL", "23514", "ck_todos_recurrence_period_pair"),
+                Arguments.of("pattern-day", "day_of_week='MONDAY'", "23514", "ck_repeat_patterns_day_of_week"),
+                Arguments.of("pattern-day", "frequency='WEEKLY', day_of_week=NULL", "23514", "ck_repeat_patterns_day_of_week"),
+                Arguments.of("pattern-day", "frequency='WEEKLY', day_of_week='FUNDAY'", "23514", "ck_repeat_patterns_day_of_week"),
+                Arguments.of("rule-day", "day_of_week='MONDAY'", "23514", "ck_recurrence_rules_day_of_week"),
+                Arguments.of("rule-day", "frequency='WEEKLY', day_of_week=NULL", "23514", "ck_recurrence_rules_day_of_week"),
+                Arguments.of("rule-day", "frequency='WEEKLY', day_of_week='FUNDAY'", "23514", "ck_recurrence_rules_day_of_week")
+        );
+    }
+
+    private RepeatPattern.RepeatPatternBuilder patternBuilder(User owner, RecurrenceFrequency frequency) {
+        return RepeatPattern.builder().user(owner).taskName("반복 작업").frequency(frequency)
+                .dayOfWeek(frequency == RecurrenceFrequency.WEEKLY ? DayOfWeek.WEDNESDAY : null)
+                .scheduledTime(LocalTime.of(9, 30)).occurrenceCount(3).lastOccurrenceDate(SCHEDULE_DATE);
+    }
+
+    private RepeatPattern persistPattern(User owner, RecurrenceFrequency frequency) {
+        return patternRepository.saveAndFlush(patternBuilder(owner, frequency).build());
+    }
+
+    private RecurrenceRule.RecurrenceRuleBuilder ruleBuilder(User owner, RepeatPattern pattern) {
+        return RecurrenceRule.builder().user(owner).sourcePattern(pattern).taskName("반복 작업").memo("검증 메모")
+                .dayOfWeek(pattern == null ? null : pattern.getDayOfWeek()).scheduledTime(LocalTime.of(9, 30))
+                .defaultDeadlineOffsetMinutes(60).defaultUserEstimatedDurationMinutes(30);
+    }
+
+    private RecurrenceRule persistRule(User owner, RepeatPattern pattern) {
+        return ruleRepository.saveAndFlush(ruleBuilder(owner, pattern).build());
+    }
+
     private float[] vector() {
         float[] values = new float[1024];
         for (int i = 0; i < values.length; i++) values[i] = (i % 17 - 8) / 16.0f;
@@ -1160,6 +1415,7 @@ class TodoRepositoryTest {
                 .user(owner)
                 .recurrenceRuleId(recurrenceRuleId)
                 .recurrenceOccurrenceAt(recurrenceRuleId == null ? null : START)
+                .recurrencePeriodStartDate(recurrenceRuleId == null ? null : SCHEDULE_DATE)
                 .title("검증 작업")
                 .startAt(START)
                 .dueAt(DUE)

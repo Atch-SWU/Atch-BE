@@ -1,6 +1,7 @@
 package com.swu.atch.migration;
 
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -15,19 +16,20 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
-// JPA 초기화 전에 V3 데이터를 커밋하고 원본 V4~V9의 확장 영향을 확인
+// JPA 초기화 전에 데이터를 커밋하고 V3→V9→V10 보존·중단·재실행을 확인
 @Testcontainers
 class FlywayMigrationTest {
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
             DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("atch_migration_test")
-            .withLabel("atch.verification", "v9")
+            .withLabel("atch.verification", "v10")
             .withReuse(false);
 
     @Test
-    void preservesV3DataWhenUpgradingToV9AndDoesNotReapplyMigrations() throws Exception {
+    void preservesV3AndV9DataWhenUpgradingToV10AndDoesNotReapplyMigrations() throws Exception {
         var dataSource = new DriverManagerDataSource(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         try (var connection = dataSource.getConnection()) {
@@ -99,7 +101,72 @@ class FlywayMigrationTest {
         assertTrue(historyV9.equals(jdbc.queryForList(
                 "SELECT * FROM flyway_schema_history ORDER BY installed_rank")),
                 "재실행 시 체크섬·순서·적용 시각을 포함한 이력이 바뀌면 안 됩니다.");
-        System.out.println("V3->V9: preserved users/auth/settings; rerun migrations=0; "
+        long todoId = jdbc.queryForObject("""
+                INSERT INTO todos (user_id, title, memo, start_at, due_at, current_schedule_date, all_day,
+                    user_estimated_duration_minutes, user_estimate_source, selected_estimate_type, status)
+                VALUES (?, '보존할 일반 작업', 'V9 기존 메모', TIMESTAMPTZ '2026-10-21 00:00:00+09',
+                    TIMESTAMPTZ '2026-10-21 01:00:00+09', DATE '2026-10-21', false, 30, 'USER_INPUT', 'USER', 'PENDING')
+                RETURNING id
+                """, Long.class, owner);
+        var todoBefore = jdbc.queryForMap("SELECT * FROM todos WHERE id=?", todoId);
+
+        // 이 폐기 가능한 DB에만 의도적으로 만든 이전 버전의 반복 참조
+        long legacyTodoId = jdbc.queryForObject("""
+                INSERT INTO todos (user_id, recurrence_rule_id, recurrence_occurrence_at, title,
+                    start_at, due_at, current_schedule_date, all_day, user_estimated_duration_minutes,
+                    user_estimate_source, selected_estimate_type, status)
+                SELECT user_id, 123456, start_at, '중단 검증 전용 합성 행', start_at, due_at,
+                    current_schedule_date, all_day, user_estimated_duration_minutes,
+                    user_estimate_source, selected_estimate_type, status FROM todos WHERE id=?
+                RETURNING id
+                """, Long.class, todoId);
+        Flyway guarded = migration(dataSource, "10");
+        var failure = assertThrows(FlywayException.class, guarded::migrate);
+        assertThat(failure.getMessage()).contains("existing recurrence references require review");
+        assertThat(jdbc.queryForObject("SELECT to_regclass('public.repeat_patterns')", String.class)).isNull();
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='todos' AND column_name='recurrence_period_start_date'
+                """, Long.class)).isZero();
+        assertTrue(historyV9.equals(jdbc.queryForList(
+                "SELECT * FROM flyway_schema_history ORDER BY installed_rank")),
+                "중단된 V10은 기존 적용 이력을 바꾸면 안 됩니다.");
+        assertThat(jdbc.update("DELETE FROM todos WHERE id=? AND recurrence_rule_id=123456", legacyTodoId))
+                .isEqualTo(1);
+
+        Flyway v10 = migration(dataSource, "10");
+        assertThat(v10.getConfiguration().getDataSource()).isSameAs(dataSource);
+        assertThat(v10.migrate().migrationsExecuted).isEqualTo(1);
+        v10.validate();
+        assertThat(v10.info().current().getVersion().toString()).isEqualTo("10");
+        assertThat(v10.info().pending()).isEmpty();
+        assertThat(jdbc.queryForList("""
+                SELECT version FROM flyway_schema_history ORDER BY installed_rank
+                """, String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM flyway_schema_history WHERE success AND checksum IS NOT NULL
+                """, Long.class)).isEqualTo(10);
+        assertTrue(historyV9.equals(jdbc.queryForList("""
+                SELECT * FROM flyway_schema_history WHERE version <> '10' ORDER BY installed_rank
+                """)), "V10 이후에도 V1~V9 이력이 그대로 유지되어야 합니다.");
+        assertTrue(afterUpgrade.equals(dataSnapshot(jdbc)), "V10 이후에도 사용자·인증·설정 데이터가 보존되어야 합니다.");
+        var todoAfter = jdbc.queryForMap("SELECT * FROM todos WHERE id=?", todoId);
+        assertThat(todoAfter).containsKey("recurrence_period_start_date");
+        assertThat(todoAfter.remove("recurrence_period_start_date")).isNull();
+        assertThat(todoAfter).isEqualTo(todoBefore);
+
+        var historyV10 = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
+        Flyway rerunV10 = migration(dataSource, "10");
+        rerunV10.validate();
+        assertThat(rerunV10.migrate().migrationsExecuted).isZero();
+        assertTrue(historyV10.equals(jdbc.queryForList(
+                "SELECT * FROM flyway_schema_history ORDER BY installed_rank")),
+                "V10 재실행 시 체크섬·순서·적용 시각을 포함한 이력이 바뀌면 안 됩니다.");
+        assertTrue(afterUpgrade.equals(dataSnapshot(jdbc)), "V10 재실행 시 기존 데이터가 바뀌면 안 됩니다.");
+        assertThat(jdbc.queryForMap("SELECT * FROM todos WHERE id=?", todoId))
+                .containsAllEntriesOf(todoBefore).containsEntry("recurrence_period_start_date", null);
+        System.out.println("V3->V9->V10: preserved users/auth/settings/non-recurring todo; "
+                + "legacy recurrence guard verified; rerun migrations=0; "
                 + "database=atch_migration_test; container=" + POSTGRES.getContainerId());
     }
 
