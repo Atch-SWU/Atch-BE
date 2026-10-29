@@ -7,10 +7,10 @@ import com.swu.atch.recurrence.domain.*;
 
 @Schema(description = "설정이 꺼져 있으면 enabled=false와 빈 목록을 반환")
 public record RecurrenceRecommendationPageResponse(
-        @Schema(description = "전체 반복 추천 기능 사용 여부입니다.")
+        @Schema(description = "전체 반복 추천 기능 사용 여부입니다. false이면 items는 빈 목록이며 추천 안내를 표시하지 않습니다. 등록된 규칙의 자동 생성 활성 여부와는 별개입니다.")
         boolean enabled,
 
-        @Schema(description = "현재 추천 목록입니다.")
+        @Schema(description = "본인의 현재 추천 목록입니다. 방금 저장한 투두에 한정되지 않습니다. 비어 있으면 추천 안내를 표시하지 않으며, 항목은 patternId로 식별합니다.")
         List<RecurrenceRecommendationResponse> items,
 
         @Schema(description = "현재 페이지 번호. 0이 첫 페이지입니다.")

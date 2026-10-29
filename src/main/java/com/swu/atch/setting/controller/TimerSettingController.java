@@ -25,7 +25,7 @@ import com.swu.atch.setting.dto.response.TimerSettingsResponse;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-@Tag(name = "08. [프론트] 작업 전환 제한 설정", description = "다른 작업으로 전환할 때의 제한 여부와 대기 시간을 설정합니다.")
+@Tag(name = "04. [프론트] 작업 세션 · 타이머")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "필수값·형식·범위·관계 검증 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

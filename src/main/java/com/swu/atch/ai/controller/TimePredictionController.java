@@ -25,7 +25,7 @@ import com.swu.atch.ai.dto.response.*;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-@Tag(name = "10. [프론트] AI 시간 예측", description = "AI 초안 발급 → 사용자 예상시간 입력 → 시간 보정 제안 → 투두 저장 순서입니다.")
+@Tag(name = "06. AI · 개인화")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "필수값·형식·단일 필드 범위 오류. 관계·상태는 Service에서 검증", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -37,7 +37,7 @@ public class TimePredictionController {
     private final AiDraftService drafts;
 
     @PostMapping(value = "/ai/drafts", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "AI 작업 초안 발급", description = """
+    @Operation(summary = "[프론트] AI 작업 초안 발급", description = """
             ### 언제 호출하나요?
             AI 기능을 사용할 작업의 식별자가 필요할 때 호출합니다. 아직 투두를 저장하지 않습니다.
 
@@ -68,7 +68,7 @@ public class TimePredictionController {
     }
 
     @PostMapping(value = "/ai/time-predictions", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "사용자 예상시간에 대한 AI 보정 제안", description = """
+    @Operation(summary = "[프론트] 사용자 예상시간에 대한 AI 보정 제안", description = """
             ### 호출 순서
             1. `/api/v1/ai/drafts`에서 `draftId`를 받습니다.
             2. 태스크명과 사용자가 직접 입력한 예상 작업 소요시간(분)을 보냅니다.
@@ -97,7 +97,7 @@ public class TimePredictionController {
     }
 
     @PostMapping(value = "/ai/time-predictions/batch", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "세부 작업별 AI 시간 보정 제안", description = """
+    @Operation(summary = "[프론트] 세부 작업별 AI 시간 보정 제안", description = """
             ### 언제 호출하나요?
             AI 세부 분량 나누기 결과를 편집하고 각 작업의 예상시간을 직접 입력한 뒤 호출합니다.
 

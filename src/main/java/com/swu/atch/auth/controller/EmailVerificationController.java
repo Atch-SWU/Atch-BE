@@ -16,7 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 // 이메일 인증 컨트롤러
-@Tag(name = "01. [프론트] 회원가입 이메일 인증", description = "로그인 없이 호출합니다. 코드 발송 → 코드 확인 → 회원가입 순서입니다.")
+@Tag(name = "01. [프론트] 인증")
 @RestController
 @RequestMapping("/api/v1/auth/email")
 public class EmailVerificationController {

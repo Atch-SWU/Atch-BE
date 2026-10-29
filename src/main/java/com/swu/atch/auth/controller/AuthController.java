@@ -18,7 +18,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
-@Tag(name = "02. [프론트] 회원가입 · 로그인", description = "로그인 없이 호출하며 성공하면 인증 토큰을 반환합니다.")
+@Tag(name = "01. [프론트] 인증")
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {

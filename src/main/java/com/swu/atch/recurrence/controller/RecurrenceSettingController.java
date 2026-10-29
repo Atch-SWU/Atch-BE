@@ -30,7 +30,7 @@ import org.springframework.web.bind.annotation.*;
         @ApiResponse(responseCode = "409", description = "추천 꺼짐·오래된 화면·상태 변경·규칙 중첩. code를 확인하고 최신 정보를 조회합니다", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "503", description = "일일 확정 또는 당일 회차 준비 실패. 잠시 후 재시도합니다", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
 })
-@Tag(name = "16. [프론트] 반복 추천 설정", description = "전체 추천 설정과 각 Rule의 자동 생성 활성 여부는 별개입니다.")
+@Tag(name = "07. [프론트] 반복 일정")
 public class RecurrenceSettingController {
     private final RecurrenceSettingService service;
 

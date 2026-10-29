@@ -36,7 +36,7 @@ import java.net.URI;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/todos")
-@Tag(name = "06. [프론트] 투두 관리", description = "투두 생성·목록·캘린더·편집·삭제·완료·완료 취소입니다.")
+@Tag(name = "03. [프론트] 투두")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "입력 형식·필수값·일정·조회 조건 오류 - VALIDATION_FAILED, INVALID_REQUEST, BAD_REQUEST",
@@ -67,6 +67,15 @@ public class TodoController {
             - 신규 시작 날짜는 서울 기준 오늘 이후이며 오늘의 지난 시각은 허용합니다. 시각 지정은 마감>시작이어야 합니다. 미완료 투두의 마감 초과는 마감에 도달한 시각부터 판정합니다.
             - allDay=true는 같은 시작/마감 날짜와 null 시각을 입력하며 서울 기준 시각 00:00부터 다음 날 00:00 미만입니다.
             - userId·상태·반복 식별값·AI 예상값은 입력하지 않습니다. AI 초안 연결 시 creationRequestId와 estimateChoice를 전달합니다. 동일 생성 요청은 기존 응답을 200으로 반환합니다. 일반 생성의 응답 유실은 목록으로 확인합니다.
+
+            ### 저장 후 반복 추천을 표시하려면
+
+            1. 이 API의 성공 응답을 받으면 먼저 저장 완료를 표시하고 투두 목록을 갱신합니다.
+            2. 이어서 `GET /api/v1/recurrence-recommendations`를 별도로 호출합니다. 추천 응답을 기다리느라 저장 완료 표시를 늦추지 않습니다.
+            3. 추천 응답의 `enabled=true`이고 `items`가 있으면 반복 등록을 안내합니다. 추천이 없거나 기능이 꺼져 있으면 안내 없이 진행합니다.
+
+            - 이 생성 응답에는 추천이 포함되지 않습니다. 서버가 저장 후 추천 API를 자동 호출하거나 비동기 알림을 보내지는 않습니다.
+            - 추천 조회 실패는 별도로 처리합니다. 이미 저장한 투두를 다시 생성하지 않습니다.
             """)
     @ApiResponse(responseCode = "201", description = "생성된 Todo",
             headers = @Header(name = "Location", description = "생성 리소스 /api/v1/todos/{todoId}", schema = @Schema(type = "string")),

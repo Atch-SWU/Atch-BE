@@ -25,7 +25,7 @@ import com.swu.atch.ai.dto.response.SimilarTodoSearchResponse;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-@Tag(name = "13. [선택 조회] 유사한 완료 투두", description = "유사 작업 목록을 별도 화면에 표시할 때 호출합니다. 시간 예측 전에 호출할 필요는 없습니다.")
+@Tag(name = "06. AI · 개인화")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "필수값·형식·단일 필드 범위 오류. 관계·상태는 Service에서 검증", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -36,7 +36,7 @@ public class SimilarTodoController {
     private final SimilarTodoService similar;
 
     @PostMapping(value = "/ai/similar-todos", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "본인의 유사한 완료 투두 검색 — 선택 호출", description = """
+    @Operation(summary = "[선택 조회] 본인의 유사한 완료 투두 검색 — 선택 호출", description = """
             ### 호출 대상
             유사한 과거 작업을 별도 화면에 보여줄 때 프론트가 선택적으로 호출할 수 있습니다. 서버 전용 API가 아닙니다.
 

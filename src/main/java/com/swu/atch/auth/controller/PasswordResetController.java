@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/auth/password-reset")
-@Tag(name = "04. [프론트] 비밀번호 재설정", description = "로그인 없이 이메일 재인증으로 비밀번호를 재설정합니다.")
+@Tag(name = "01. [프론트] 인증")
 @SecurityRequirements
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "입력·코드·재설정 증명 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

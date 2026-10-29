@@ -18,7 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-@Tag(name = "03. [프론트] 인증 유지 · 로그아웃", description = "리프레시 토큰을 요청 본문으로 전달합니다.")
+@Tag(name = "01. [프론트] 인증")
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthSessionController {
