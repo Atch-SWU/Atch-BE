@@ -66,7 +66,7 @@ public class RecurrenceRule {
     @Column(name = "day_of_week", length = 10)
     private DayOfWeek dayOfWeek;
 
-    @Column(name = "scheduled_time", nullable = false)
+    @Column(name = "scheduled_time")
     private LocalTime scheduledTime;
 
     @Column(
@@ -80,6 +80,13 @@ public class RecurrenceRule {
             nullable = false
     )
     private Integer defaultUserEstimatedDurationMinutes;
+
+    @Column(name = "all_day", nullable = false)
+    private boolean allDay;
+
+    // 이 시각 이전 예정 회차는 재활성화·편집 후에 소급 생성하지 않는다.
+    @Column(name = "generation_not_before", nullable = false)
+    private Instant generationNotBefore;
 
     // 개별 반복 규칙의 활성화 여부
     @Column(nullable = false)
@@ -111,15 +118,15 @@ public class RecurrenceRule {
             DayOfWeek dayOfWeek,
             LocalTime scheduledTime,
             Integer defaultDeadlineOffsetMinutes,
-            Integer defaultUserEstimatedDurationMinutes
+            Integer defaultUserEstimatedDurationMinutes,
+            Instant generationNotBefore
     ) {
         Objects.requireNonNull(user, "사용자는 필수입니다.");
         Objects.requireNonNull(
                 sourcePattern, "원본 반복 패턴은 필수입니다."
         );
-        Objects.requireNonNull(
-                scheduledTime, "반복 예정 시각은 필수입니다."
-        );
+        boolean allDay = sourcePattern.isAllDay();
+        validateTime(allDay, scheduledTime, defaultDeadlineOffsetMinutes);
 
         RecurrenceFrequency frequency =
                 Objects.requireNonNull(
@@ -171,11 +178,53 @@ public class RecurrenceRule {
         this.frequency = frequency;
         this.dayOfWeek = dayOfWeek;
         this.scheduledTime = scheduledTime;
+        this.allDay = allDay;
+        this.generationNotBefore = generationNotBefore != null ? generationNotBefore
+                : Instant.now().atZone(java.time.ZoneId.of("Asia/Seoul")).toLocalDate().plusDays(1)
+                        .atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toInstant();
         this.defaultDeadlineOffsetMinutes =
                 defaultDeadlineOffsetMinutes;
         this.defaultUserEstimatedDurationMinutes =
                 defaultUserEstimatedDurationMinutes;
         this.enabled = true;
+    }
+
+    public void updateDetails(String name, String memo, DayOfWeek day, LocalTime time,
+            boolean allDay, int offset, int estimate, Instant now) {
+        requireActive();
+        if (name == null || name.isBlank() || name.trim().length() > 200 || memo != null && memo.length() > 2000
+                || estimate <= 0 || offset <= 0) throw new IllegalArgumentException("규칙 입력이 올바르지 않습니다.");
+        validateDayOfWeek(frequency, day);
+        validateTime(allDay, time, offset);
+        taskName = name.trim(); this.memo = memo; dayOfWeek = day; scheduledTime = time;
+        this.allDay = allDay; defaultDeadlineOffsetMinutes = offset;
+        defaultUserEstimatedDurationMinutes = estimate;
+        advanceGenerationBoundary(now);
+    }
+
+    public void changeEnabled(boolean value, Instant now) {
+        requireActive();
+        if (enabled == value) return;
+        enabled = value;
+        if (value) advanceGenerationBoundary(now);
+    }
+
+    public void softDelete(Instant now) {
+        if (deletedAt == null) { deletedAt = Objects.requireNonNull(now); enabled = false; }
+    }
+
+    private void advanceGenerationBoundary(Instant now) {
+        if (Objects.requireNonNull(now).isAfter(generationNotBefore)) generationNotBefore = now;
+    }
+
+    private void requireActive() {
+        if (deletedAt != null) throw new IllegalStateException("삭제된 규칙입니다.");
+    }
+
+    private static void validateTime(boolean allDay, LocalTime time, Integer offset) {
+        if (allDay ? time != null || !Integer.valueOf(1440).equals(offset)
+                : time == null || time.getNano() % 1000 != 0)
+            throw new IllegalArgumentException("하루종일은 시각 없이 마감 간격 1440분, 시각 지정은 예정 시각이 필요합니다.");
     }
 
     // 반복 주기에 따른 요일 검증

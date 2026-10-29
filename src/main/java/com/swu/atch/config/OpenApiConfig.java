@@ -35,6 +35,7 @@ public class OpenApiConfig {
                                 | 개인화 프로필 재계산·기본 보정시간(Baseline) 계산 | AI 시간 예측 |
                                 | Voyage 임베딩 생성·갱신·유사 작업 검색 | AI 시간 예측 또는 선택적 유사 작업 검색 |
                                 | Claude 시간 보정·세부 작업 제안 | AI 시간 예측·AI 세부 분량 나누기 |
+                                | 활성 Rule의 당일 반복 Todo 생성 | 서버 주기 처리 및 Todo 목록·캘린더 조회 준비 |
                                 | 일별 기록 확정(Snapshot)·미완료 작업 이월 | 주기 처리 및 관련 조회 시 서버가 처리 |
 
                                 프론트는 Claude·Voyage를 직접 호출하지 않으며 제공자 API 키도 보내지 않습니다.
@@ -49,6 +50,7 @@ public class OpenApiConfig {
                                 | AI 세부 분량 나누기 | AI 초안 발급 → 세부 작업 제안 → 편집·개별 시간 입력 → 필요하면 묶음 시간 예측 → 최종 세부 투두 저장 |
                                 | 타이머 화면 복원 | 현재 타이머 조회 → 응답 상태로 화면 복원 |
                                 | 다른 작업으로 전환 | 전환 요청 → WAITING이면 readyAt까지 대기 → 전환 확정. STARTED이면 즉시 반영 |
+                                | 반복 일정 등록 | 추천 목록 조회 → 사용자가 등록 선택 → Rule 등록 → 이후 해당 날짜에 서버가 Todo 생성 |
                                 | 작업 완료 | 투두 완료 → 완료 결과·다음 작업 후보 조회 |
 
                                 ## 요청 필드 읽는 법
@@ -104,6 +106,9 @@ public class OpenApiConfig {
                         .description("개인화 정보를 화면에 표시할 때 조회합니다. 시간 예측 전에 호출할 필요는 없습니다."))
                 .addTagsItem(new Tag().name("13. [선택 조회] 유사한 완료 투두")
                         .description("유사 작업 목록을 별도 화면에 표시할 때 호출합니다. 시간 예측 전에 호출할 필요는 없습니다."))
+                .addTagsItem(new Tag().name("14. [프론트] 반복 일정 추천").description("투두 저장 후 추천 조회 → 등록/이번만/다시 제안하지 않기. 감지는 서버 내부입니다."))
+                .addTagsItem(new Tag().name("15. [프론트] 반복 일정 관리").description("규칙 등록·조회·수정·활성·삭제. 예정 시작 날짜가 된 회차만 서버가 생성합니다."))
+                .addTagsItem(new Tag().name("16. [프론트] 반복 추천 설정").description("새 패턴 감지·추천 설정이며 등록 규칙의 자동 생성과 독립입니다."))
                 .addTagsItem(new Tag().name("90. [점검용] 시간 예측 프로필 재계산")
                         .description("본인 프로필을 직접 재계산하는 선택 API입니다. 일반 예측은 서버가 내부에서 재계산합니다."))
 

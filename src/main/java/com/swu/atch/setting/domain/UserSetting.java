@@ -55,6 +55,9 @@ public class UserSetting {
         this.user = user;
     }
 
+    // 추천 설정은 이미 등록된 규칙의 활성화와 독립이다.
+    public void changeRepeatRecommendation(boolean enabled) { repeatRecommendationEnabled = enabled; }
+
     // null은 기존 값을 유지하며 반복 추천 설정에는 영향을 주지 않는다.
     public void changeTimerSettings(Boolean enabled, Integer waitMinutes) {
         if (enabled == null && waitMinutes == null || waitMinutes != null && waitMinutes <= 0)

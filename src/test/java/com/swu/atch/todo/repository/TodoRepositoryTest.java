@@ -201,7 +201,7 @@ class TodoRepositoryTest {
     @Autowired private RewardGrantRepository grantRepository;
 
     @Test
-    void migratesV1ThroughV13AndValidatesJpaOnTheContainer() throws SQLException {
+    void migratesV1ThroughV14AndValidatesJpaOnTheContainer() throws SQLException {
         assertThat(flyway.getConfiguration().getDataSource()).isSameAs(dataSource);
         try (var connection = dataSource.getConnection()) {
             assertThat(connection.getMetaData().getURL()).isEqualTo(POSTGRES.getJdbcUrl());
@@ -209,21 +209,21 @@ class TodoRepositoryTest {
         }
         assertThat(Arrays.stream(flyway.info().applied())
                 .map(MigrationInfo::getVersion)
-                .map(Object::toString).toList()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13");
+                .map(Object::toString).toList()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14");
         flyway.validate();
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history ORDER BY installed_rank", String.class))
-                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13");
+                .containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14");
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM flyway_schema_history WHERE success AND checksum IS NOT NULL
-                """, Long.class)).isEqualTo(13L);
+                """, Long.class)).isEqualTo(14L);
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM pg_extension WHERE extname = 'vector'", Long.class
         )).isEqualTo(1L);
         assertThat(entityManager.getEntityManagerFactory().getProperties())
                 .containsEntry("hibernate.hbm2ddl.auto", "validate");
-        System.out.println("V13 JPA: database=atch_todo_test; container=" + POSTGRES.getContainerId()
+        System.out.println("V14 JPA: database=atch_todo_test; container=" + POSTGRES.getContainerId()
                 + "; PostgreSQL=" + jdbc.queryForObject("SHOW server_version", String.class)
                 + "; vector=" + jdbc.queryForObject(
                 "SELECT extversion FROM pg_extension WHERE extname='vector'", String.class));
@@ -559,8 +559,8 @@ class TodoRepositoryTest {
                 Map.entry("time_estimation_profiles", "id:bigint,user_id:bigint,duration_correction_factor:float8,sample_count:integer,log_ratio_stddev:float8?,underestimation_rate:float8,profile_reliability_score:float8,created_at:timestamptz,updated_at:timestamptz"),
                 Map.entry("todo_embeddings", "todo_id:bigint,embedding:vector(1024),embedding_model:varchar(100),source_text_hash:char(64),created_at:timestamptz,updated_at:timestamptz"),
                 Map.entry("time_prediction_experiments", "id:bigint,prediction_run_id:uuid,todo_id:bigint,user_id:bigint,strategy_type:varchar(40),predicted_minutes:integer,actual_minutes:integer?,absolute_error_minutes:integer?,absolute_percentage_error:float8?,baseline_prediction_minutes:integer?,duration_correction_factor:float8?,simple_factor:float8?,profile_reliability_score:float8?,sample_count:integer?,log_ratio_stddev:float8?,underestimation_rate:float8?,context_adjustment_factor:float8?,similar_todo_ids:jsonb?,reason_codes:jsonb?,model_name:varchar(100)?,prompt_version:varchar(50)?,embedding_model:varchar(100)?,created_at:timestamptz,evaluated_at:timestamptz?"),
-                Map.entry("repeat_patterns", "id:bigint,user_id:bigint,task_name:varchar(200),frequency:varchar(20),day_of_week:varchar(10)?,scheduled_time:time,occurrence_count:integer,status:varchar(20),last_occurrence_date:date,last_suggested_at:timestamptz?,created_at:timestamptz,updated_at:timestamptz"),
-                Map.entry("recurrence_rules", "id:bigint,user_id:bigint,source_pattern_id:bigint,task_name:varchar(200),memo:text?,frequency:varchar(20),day_of_week:varchar(10)?,scheduled_time:time,default_deadline_offset_minutes:integer,default_user_estimated_duration_minutes:integer,enabled:boolean,created_at:timestamptz,updated_at:timestamptz,deleted_at:timestamptz?"),
+                Map.entry("repeat_patterns", "id:bigint,user_id:bigint,task_name:varchar(200),frequency:varchar(20),day_of_week:varchar(10)?,scheduled_time:time?,occurrence_count:integer,status:varchar(20),last_occurrence_date:date,last_suggested_at:timestamptz?,created_at:timestamptz,updated_at:timestamptz,all_day:boolean,detection_after_todo_id:bigint"),
+                Map.entry("recurrence_rules", "id:bigint,user_id:bigint,source_pattern_id:bigint,task_name:varchar(200),memo:text?,frequency:varchar(20),day_of_week:varchar(10)?,scheduled_time:time?,default_deadline_offset_minutes:integer,default_user_estimated_duration_minutes:integer,enabled:boolean,created_at:timestamptz,updated_at:timestamptz,deleted_at:timestamptz?,all_day:boolean,generation_not_before:timestamptz"),
                 Map.entry("character_items", "id:bigint,name:varchar(100),grade:varchar(10),category:varchar(20),asset_key:varchar(500),active:boolean,created_at:timestamptz,updated_at:timestamptz"),
                 Map.entry("user_character_items", "id:bigint,user_id:bigint,character_item_id:bigint,acquired_at:timestamptz"),
                 Map.entry("user_equipped_items", "id:bigint,user_id:bigint,character_item_id:bigint,category:varchar(20),equipped_at:timestamptz,updated_at:timestamptz"),
@@ -644,7 +644,7 @@ class TodoRepositoryTest {
         assertThat(jdbc.queryForList("""
                 SELECT conname FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
                 WHERE n.nspname='public' AND c.contype='c'
-                """, String.class)).hasSize(68).contains("ck_daily_settlement_date", "ck_timer_switch_state", "ck_timer_switch_distinct", "ck_timer_switch_time", "ck_timer_switch_started", "ck_auth_accounts_provider", "ck_auth_accounts_fields",
+                """, String.class)).hasSize(71).contains("ck_repeat_patterns_detection_boundary", "ck_repeat_patterns_schedule", "ck_recurrence_rules_schedule", "ck_daily_settlement_date", "ck_timer_switch_state", "ck_timer_switch_distinct", "ck_timer_switch_time", "ck_timer_switch_started", "ck_auth_accounts_provider", "ck_auth_accounts_fields",
                         "ck_repeat_patterns_task_name", "ck_repeat_patterns_frequency",
                         "ck_repeat_patterns_day_of_week", "ck_repeat_patterns_occurrence_count",
                         "ck_repeat_patterns_status", "ck_recurrence_rules_task_name",
@@ -1338,7 +1338,7 @@ class TodoRepositoryTest {
                 .dayOfWeek(null).build());
         assertThrows(IllegalArgumentException.class, () -> patternBuilder(owner, RecurrenceFrequency.DAILY)
                 .occurrenceCount(0).build());
-        assertThrows(NullPointerException.class, () -> patternBuilder(owner, RecurrenceFrequency.DAILY)
+        assertThrows(IllegalArgumentException.class, () -> patternBuilder(owner, RecurrenceFrequency.DAILY)
                 .scheduledTime(null).build());
         assertThrows(IllegalArgumentException.class, () -> ruleBuilder(owner, pattern)
                 .dayOfWeek(DayOfWeek.MONDAY).build());

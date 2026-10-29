@@ -247,7 +247,29 @@ class FlywayMigrationTest {
         var historyV13 = jdbc.queryForList("select * from flyway_schema_history order by installed_rank");
         assertThat(migration(dataSource, "13").migrate().migrationsExecuted).isZero();
         assertThat(jdbc.queryForList("select * from flyway_schema_history order by installed_rank")).isEqualTo(historyV13);
-        System.out.println("V3->V9->V10->V11->V12->V13: preserved users/auth/settings/todos/patterns/rules; "
+        // V14 이전 데이터·적용 이력과 삭제 경계 백필을 함께 검증한다.
+        jdbc.update("update recurrence_rules set deleted_at=CURRENT_TIMESTAMP where id=?", ruleId);
+        var prior = new java.util.LinkedHashMap<String, List<String>>();
+        for (String table : List.of("users", "auth_accounts", "user_settings", "todos", "repeat_patterns", "recurrence_rules", "ai_drafts", "ai_operations"))
+            prior.put(table, jdbc.queryForList("select to_jsonb(t)::text from " + table + " t order by to_jsonb(t)::text", String.class));
+        var v14 = migration(dataSource, "14");
+        assertThat(v14.getConfiguration().getDataSource()).isSameAs(dataSource);
+        assertThat(v14.migrate().migrationsExecuted).isEqualTo(1);
+        v14.validate();
+        assertThat(jdbc.queryForList("select * from flyway_schema_history where version<>'14' order by installed_rank")).isEqualTo(historyV13);
+        for (var entry : prior.entrySet()) {
+            String value = entry.getKey().equals("repeat_patterns") ? "to_jsonb(t)-'all_day'-'detection_after_todo_id'"
+                    : entry.getKey().equals("recurrence_rules") ? "to_jsonb(t)-'all_day'-'generation_not_before'" : "to_jsonb(t)";
+            assertThat(jdbc.queryForList("select ("+value+")::text from "+entry.getKey()+" t order by ("+value+")::text", String.class))
+                    .containsExactlyElementsOf(entry.getValue());
+        }
+        assertThat(jdbc.queryForObject("select detection_after_todo_id from repeat_patterns where id=?", Long.class, patternId))
+                .isEqualTo(jdbc.queryForObject("select max(id) from todos where user_id=?", Long.class, owner));
+        assertThat(jdbc.queryForObject("select all_day=false and generation_not_before=updated_at from recurrence_rules where id=?", Boolean.class, ruleId)).isTrue();
+        var historyV14 = jdbc.queryForList("select * from flyway_schema_history order by installed_rank");
+        assertThat(v14.migrate().migrationsExecuted).isZero();
+        assertThat(jdbc.queryForList("select * from flyway_schema_history order by installed_rank")).isEqualTo(historyV14);
+        System.out.println("V3->V9->V10->V11->V12->V13->V14: preserved users/auth/settings/todos/patterns/rules; "
                 + "legacy recurrence guard verified; rerun migrations=0; "
                 + "database=atch_migration_test; container=" + POSTGRES.getContainerId());
     }
