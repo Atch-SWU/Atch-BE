@@ -26,7 +26,7 @@ import org.springdoc.core.annotations.ParameterObject;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-@Tag(name = "09. [프론트] 통계 · 기록", description = "완료율·집중시간·일별 기록·예상시간 비교를 조회합니다.")
+@Tag(name = "05. [프론트] 통계 · 기록")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "필수값·형식·범위·관계 검증 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

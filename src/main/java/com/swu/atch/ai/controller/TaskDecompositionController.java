@@ -25,7 +25,7 @@ import com.swu.atch.ai.dto.response.*;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-@Tag(name = "11. [프론트] AI 세부 분량 나누기", description = "세부 작업 제안 → 편집·시간 입력 → 선택적 시간 예측 → 최종 승인 저장 순서입니다.")
+@Tag(name = "06. AI · 개인화")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "필수값·형식·단일 필드 범위 오류. 관계·상태는 Service에서 검증", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -37,7 +37,7 @@ public class TaskDecompositionController {
     private final AiTodoService aiTodos;
 
     @PostMapping(value = "/ai/task-decompositions", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "AI 세부 분량 나누기 — 작업 제안", description = """
+    @Operation(summary = "[프론트] AI 세부 분량 나누기 — 작업 제안", description = """
             ### 호출 순서
             1. 새 작업의 `draftId`를 발급받습니다.
             2. 태스크명·일정과 선택 입력인 작업 내용·메모를 보냅니다.
@@ -69,7 +69,7 @@ public class TaskDecompositionController {
     }
 
     @PostMapping(value = "/todos/decomposed", consumes = "application/json", produces = "application/json")
-    @Operation(summary = "최종 승인한 세부 투두 일괄 저장", description = """
+    @Operation(summary = "[프론트] 최종 승인한 세부 투두 일괄 저장", description = """
             ### 언제 호출하나요?
             세부 작업 편집·개별 예상시간 입력·AI 제안 수락 여부를 모두 확정한 뒤 한 번 호출합니다.
 

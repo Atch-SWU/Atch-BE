@@ -27,7 +27,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-@Tag(name = "07. [프론트] 작업 진행 · 타이머", description = "작업 세션 시작·일시정지·재개·전환과 완료 결과입니다.")
+@Tag(name = "04. [프론트] 작업 세션 · 타이머")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "필수값·형식·범위·관계 검증 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

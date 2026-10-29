@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/users/me")
-@Tag(name = "05. [프론트] 내 계정", description = "로그인한 본인의 비밀번호·닉네임 변경과 회원탈퇴입니다.")
+@Tag(name = "02. [프론트] 내 계정")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "입력값 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
