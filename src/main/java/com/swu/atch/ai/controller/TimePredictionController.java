@@ -77,7 +77,7 @@ public class TimePredictionController {
 
             ### 실패·재요청 처리
 
-            - HTTP 200이어도 `mode=STATISTICAL_BASELINE`이면 Claude 대신 개인화 통계로 계산한 대체 제안입니다. `claudeStatus`도 함께 확인합니다.
+            - HTTP 200이어도 `mode=STATISTICAL_BASELINE`이면 Claude 대신 개인화 통계의 기본 보정시간(Baseline)으로 계산한 대체 제안입니다. `claudeStatus`도 함께 확인합니다.
             - 작업별 Claude 보정 성공은 1회입니다. 같은 입력의 재요청은 보존 결과를 돌려주며 다른 입력은 409입니다.
             - 편집·거절·토큰 만료로 성공 횟수가 초기화되지 않습니다. 실패·비활성·대체 결과는 성공 횟수를 사용하지 않습니다.
             - 제안 토큰은 10분 유효합니다. 같은 성공 결과를 다시 요청하면 외부 AI 호출 없이 토큰을 재발급합니다.

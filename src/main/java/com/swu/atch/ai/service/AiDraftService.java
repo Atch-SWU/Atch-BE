@@ -24,6 +24,15 @@ public class AiDraftService {
     private final TodoRepository todos;
     private final AiRateLimiter limits;
 
+    // 자동 생성한 새 Todo의 통계 제안을 레거시 성공으로 오인하지 않도록 정식 초안을 연결한다.
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void attachGeneratedLocked(com.swu.atch.user.domain.User user, com.swu.atch.todo.domain.Todo todo, Instant now) {
+        if (todo.getRecurrenceRuleId() == null || todo.getUserEstimateSource() != com.swu.atch.todo.domain.UserEstimateSource.RECURRENCE_TEMPLATE
+                || !todo.getUser().getId().equals(user.getId())) throw bad();
+        if (drafts.findByTodo_IdAndUser_Id(todo.getId(), user.getId()).isEmpty())
+            drafts.saveAndFlush(new AiDraft(user, todo, null, now));
+    }
+
     public AiDraftResponse issue(Long user, String stamp, AiDraftRequest request) {
         return tx.locked(
                 user,

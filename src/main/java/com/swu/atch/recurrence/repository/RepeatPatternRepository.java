@@ -11,6 +11,11 @@ import java.util.Optional;
 public interface RepeatPatternRepository
         extends JpaRepository<RepeatPattern, Long> {
 
+    org.springframework.data.domain.Page<RepeatPattern> findAllByUser_IdAndStatusOrderByLastSuggestedAtDescIdDesc(
+            Long userId, RepeatPatternStatus status, org.springframework.data.domain.Pageable pageable);
+
+    List<RepeatPattern> findAllByUser_IdOrderByIdAsc(Long userId);
+
     // 사용자 소유의 반복 패턴 단건 조회
     Optional<RepeatPattern> findByIdAndUser_Id(
             Long id,

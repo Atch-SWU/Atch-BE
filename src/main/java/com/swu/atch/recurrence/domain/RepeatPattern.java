@@ -52,21 +52,29 @@ public class RepeatPattern {
     @Column(name = "day_of_week", length = 10)
     private DayOfWeek dayOfWeek;
 
-    @Column(name = "scheduled_time", nullable = false)
+    @Column(name = "scheduled_time")
     private LocalTime scheduledTime;
 
+    // 하루종일은 시각 대신 날짜로 반복을 구분한다.
+    @Column(name = "all_day", nullable = false)
+    private boolean allDay;
+
+    // 초기화 이전 Todo를 재사용하지 않는 사용자별 관측 경계다. FK가 아니다.
+    @Column(name = "detection_after_todo_id", nullable = false)
+    private long detectionAfterTodoId;
+
     @Column(name = "occurrence_count", nullable = false)
-    private Integer occurrenceCount; // 이후 변경 메서드 추가 필요
+    private Integer occurrenceCount;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private RepeatPatternStatus status; // 반복 추천 Service 설계 시 status 변경 메서드 추가 필요
+    private RepeatPatternStatus status;
 
     @Column(name = "last_occurrence_date", nullable = false)
     private LocalDate lastOccurrenceDate;
 
     @Column(name = "last_suggested_at")
-    private Instant lastSuggestedAt; // 이후 변경 메서드 추가 필요
+    private Instant lastSuggestedAt;
 
     @CreationTimestamp
     @Column(
@@ -88,14 +96,15 @@ public class RepeatPattern {
             RecurrenceFrequency frequency,
             DayOfWeek dayOfWeek,
             LocalTime scheduledTime,
+            boolean allDay,
+            long detectionAfterTodoId,
             Integer occurrenceCount,
             LocalDate lastOccurrenceDate
     ) {
         Objects.requireNonNull(user, "사용자는 필수입니다.");
         Objects.requireNonNull(frequency, "반복 주기는 필수입니다.");
-        Objects.requireNonNull(
-                scheduledTime, "반복 예정 시각은 필수입니다."
-        );
+        validateTime(allDay, scheduledTime);
+        if (detectionAfterTodoId < 0) throw new IllegalArgumentException("관측 경계는 음수일 수 없습니다.");
         Objects.requireNonNull(
                 lastOccurrenceDate, "마지막 반복 발생일은 필수입니다."
         );
@@ -120,9 +129,47 @@ public class RepeatPattern {
         this.frequency = frequency;
         this.dayOfWeek = dayOfWeek;
         this.scheduledTime = scheduledTime;
+        this.allDay = allDay;
+        this.detectionAfterTodoId = detectionAfterTodoId;
         this.occurrenceCount = occurrenceCount;
         this.lastOccurrenceDate = lastOccurrenceDate;
         this.status = RepeatPatternStatus.DETECTING;
+    }
+
+    // 조회 횟수가 아닌 실제 관측 결과로만 상태를 갱신한다.
+    public void observe(int count, LocalDate lastDate, boolean suggest, Instant now) {
+        if (status == RepeatPatternStatus.DISMISSED || status == RepeatPatternStatus.REGISTERED) return;
+        if (count < 0 || lastDate == null) throw new IllegalArgumentException("관측값이 올바르지 않습니다.");
+        occurrenceCount = count;
+        lastOccurrenceDate = lastDate;
+        var next = suggest && count >= 2 ? RepeatPatternStatus.SUGGESTED : RepeatPatternStatus.DETECTING;
+        if (next == RepeatPatternStatus.SUGGESTED && status != next) lastSuggestedAt = Objects.requireNonNull(now);
+        status = next;
+    }
+
+    public void skip(long afterTodoId) {
+        requireSuggested();
+        advanceDetectionBoundary(afterTodoId);
+        occurrenceCount = 0;
+        status = RepeatPatternStatus.DETECTING;
+    }
+
+    public void dismiss() { requireSuggested(); status = RepeatPatternStatus.DISMISSED; }
+    public void register() { requireSuggested(); status = RepeatPatternStatus.REGISTERED; }
+
+    // 규칙 삭제 시 원본 상태·횟수를 유지한 채 새 관측의 하한만 전진시킨다.
+    public void advanceDetectionBoundary(long afterTodoId) {
+        if (afterTodoId < 0) throw new IllegalArgumentException("관측 경계는 음수일 수 없습니다.");
+        detectionAfterTodoId = Math.max(detectionAfterTodoId, afterTodoId);
+    }
+
+    private void requireSuggested() {
+        if (status != RepeatPatternStatus.SUGGESTED) throw new IllegalStateException("현재 추천 상태가 아닙니다.");
+    }
+
+    private static void validateTime(boolean allDay, LocalTime time) {
+        if (allDay ? time != null : time == null || time.getNano() % 1000 != 0)
+            throw new IllegalArgumentException("하루종일은 시각 없이, 시각 지정은 유효한 예정 시각이 필요합니다.");
     }
 
     // 반복 주기에 따른 요일 검증

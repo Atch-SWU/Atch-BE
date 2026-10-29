@@ -33,6 +33,7 @@ import java.util.Optional;
 @Transactional
 public class TodoService {
     private static final Sort LIST_ORDER = Sort.by("currentScheduleDate", "startAt", "id");
+    private final com.swu.atch.recurrence.service.RecurrenceGenerationService recurrence;
     private final TodoResponseMapper responseMapper;
     private final com.swu.atch.ai.service.AiTodoService aiTodos;
     private final TodoRepository todos;
@@ -62,7 +63,7 @@ public class TodoService {
     }
 
     public TodoPageResponse list(Long userId, TodoListQuery query) {
-        Instant now = lockForRead(userId);
+        Instant now = lockForRead(userId, true);
         var range = schedule.listRange(query, now);
         var pageable = PageRequest.of(query.page(), query.size(), LIST_ORDER);
         var page = query.status().isEmpty()
@@ -81,13 +82,13 @@ public class TodoService {
     }
 
     public TodoCalendarResponse calendar(Long userId, TodoDateRangeQuery query) {
-        lockForRead(userId);
+        lockForRead(userId, true);
         var range = schedule.range(query.from(), query.to());
         return new TodoCalendarResponse(range.from(), range.to(), todos.findActiveScheduleDates(userId, range.from(), range.to()));
     }
 
     public TodoResponse detail(Long userId, Long todoId) {
-        Instant now = lockForRead(userId);
+        Instant now = lockForRead(userId, false);
         var todo = todos.findByIdAndUser_IdAndDeletedAtIsNull(todoId, userId).orElseThrow(this::notFound);
         return toResponse(todo, actualSeconds(todo, userId), now);
     }
@@ -160,10 +161,12 @@ public class TodoService {
         return new LockedUser(user, settlements.requireCurrentLocked(user));
     }
 
-    private Instant lockForRead(Long userId) {
+    private Instant lockForRead(Long userId, boolean prepareRecurrence) {
         settlements.requirePrepared(userId, null);
         var user = users.findByIdForUpdate(userId).orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
-        return settlements.requireCurrentLocked(user);
+        var now = settlements.requireCurrentLocked(user);
+        if (prepareRecurrence) recurrence.generateTodayLocked(user, now);
+        return now;
     }
 
     private void movePastAssignmentToToday(Todo todo, Instant now) {

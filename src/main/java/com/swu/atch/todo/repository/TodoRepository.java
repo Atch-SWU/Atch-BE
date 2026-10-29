@@ -18,6 +18,27 @@ import java.util.Optional;
 // 사용자 투두 데이터 접근
 public interface TodoRepository extends JpaRepository<Todo, Long> {
 
+    // 감지에는 메모·상태·AI 값 없이 원래 일정과 생성 순서만 필요하다.
+    interface RecurrenceObservation {
+        Long getId();
+        String getTitle();
+        java.time.Instant getStartAt();
+        boolean isAllDay();
+    }
+    @Query("""
+            select t.id as id, t.title as title, t.startAt as startAt, t.allDay as allDay
+            from Todo t where t.user.id=:userId and t.deletedAt is null and t.recurrenceRuleId is null
+              and t.startAt<=:asOf order by t.startAt, t.id
+            """)
+    List<RecurrenceObservation> findRecurrenceObservations(@Param("userId") Long userId,
+                                                        @Param("asOf") java.time.Instant asOf);
+
+    @Query("select coalesce(max(t.id), 0) from Todo t where t.user.id = :userId")
+    long maxIdForUser(@Param("userId") Long userId);
+
+    // 논리 삭제한 회차도 다시 생성하지 않는다.
+    boolean existsByRecurrenceRuleIdAndRecurrencePeriodStartDate(Long ruleId, LocalDate period);
+
     List<Todo> findByUser_IdAndDeletedAtIsNullAndCurrentScheduleDateBeforeAndStatusNot(
             Long userId, LocalDate date, TodoStatus status);
     List<Todo> findByUser_IdAndDeletedAtIsNullAndStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThanOrderByCompletedAtDescIdDesc(
