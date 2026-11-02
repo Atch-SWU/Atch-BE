@@ -38,7 +38,7 @@ jobs:
           ./gradlew test --no-daemon
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ap-northeast-2
@@ -72,7 +72,7 @@ jobs:
 
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           # 기존 GitHub OIDC 역할 재사용
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
