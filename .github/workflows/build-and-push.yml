@@ -87,8 +87,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          # # SSM에서 배포 스크립트를 Bash로 실행
           PARAMS=$(jq -nc \
-            # bash를 명시적으로 추가 -> SSM이 명령을 전달하더라도 배포 스크립트 자체는 Bash로 실행
             --arg command "bash /opt/atch/deploy.sh ${COMMIT_SHA}" \
             '{commands: [$command]}')
 
