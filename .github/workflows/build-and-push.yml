@@ -1,8 +1,17 @@
 
 name: Atch API Build and Push
 
+# main에 코드가 Push될 때마다 워크플로 자동 실행
 on:
+  push: 
+    branches:
+      - main
   workflow_dispatch:
+
+# 여러 배포가 동시에 진행되는 것을 방지
+concurrency:
+  group: atch-production-deployment
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -50,8 +59,10 @@ jobs:
           tags: ${{ steps.login-ecr.outputs.registry }}/atch-api:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          
   deploy:
     name: Deploy to EC2
+    # Docker 이미지 빌드 성공 후에만 배포
     needs: build-and-push
     runs-on: ubuntu-latest
 
@@ -63,21 +74,25 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
+          # 기존 GitHub OIDC 역할 재사용
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ap-northeast-2
 
       - name: Deploy through AWS SSM
         env:
           INSTANCE_ID: i-0c2d75dfc81d92937
+          # 방금 빌드한 Git 커밋 SHA
           COMMIT_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
 
           PARAMS=$(jq -nc \
+            # bash를 명시적으로 추가 -> SSM이 명령을 전달하더라도 배포 스크립트 자체는 Bash로 실행
             --arg command "bash /opt/atch/deploy.sh ${COMMIT_SHA}" \
             '{commands: [$command]}')
 
+          # ssm send-command - EC2에서 배포 스크립트 실행
           COMMAND_ID=$(aws ssm send-command \
             --region ap-northeast-2 \
             --instance-ids "$INSTANCE_ID" \
@@ -91,6 +106,7 @@ jobs:
           echo "SSM Command ID: $COMMAND_ID"
 
           for attempt in $(seq 1 90); do
+            # get-command-invocation - 배포 성공·실패 확인
             STATUS=$(aws ssm get-command-invocation \
               --region ap-northeast-2 \
               --command-id "$COMMAND_ID" \
