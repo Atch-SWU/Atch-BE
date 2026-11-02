@@ -75,7 +75,7 @@ jobs:
           set -euo pipefail
 
           PARAMS=$(jq -nc \
-            --arg command "/opt/atch/deploy.sh ${COMMIT_SHA}" \
+            --arg command "bash /opt/atch/deploy.sh ${COMMIT_SHA}" \
             '{commands: [$command]}')
 
           COMMAND_ID=$(aws ssm send-command \
