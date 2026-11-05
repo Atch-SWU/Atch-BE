@@ -59,7 +59,7 @@ public class UserEquippedItem {
     private Instant updatedAt;
 
     // 카테고리별 최초 장착
-    // 이미 같은 카테고리에 장착한 아이템이 있다면 새 행을 만드는 대신 기존 행의 아이템과 equippedAt을 변경해야 함 -> Service 개발 단계에서 추가
+    // 같은 슬롯의 아이템 교체는 replaceItem을 사용한다.
     public static UserEquippedItem equip(
             User user,
             CharacterItem characterItem,
@@ -85,4 +85,17 @@ public class UserEquippedItem {
 
         return equippedItem;
     }
+
+    // 소유권은 Service에서 검증하고, 이 메서드는 슬롯과 장착 시각을 유지한다.
+    public void replaceItem(CharacterItem item, Instant now) {
+        Objects.requireNonNull(item, "장착 아이템은 필수입니다.");
+        Objects.requireNonNull(now, "장착 시각은 필수입니다.");
+        if (item.getId() == null || item.getCategory() != category) {
+            throw new IllegalArgumentException("저장된 동일 카테고리 아이템만 교체할 수 있습니다.");
+        }
+        if (Objects.equals(characterItem.getId(), item.getId())) return;
+        characterItem = item;
+        equippedAt = now;
+    }
+
 }

@@ -31,12 +31,15 @@ public class DailySettlementService {
     private final AccountCredentials credentials;
     private final TodoSchedulePolicy clock;
     private final TransactionTemplate batch;
+    private final com.swu.atch.reward.service.RewardSettlementService rewards;
 
     public DailySettlementService(UserRepository users, TodoRepository todos, TodoDailySnapshotRepository snapshots,
             UserDailySettlementStateRepository states, AccountCredentials credentials,
-            TodoSchedulePolicy clock, PlatformTransactionManager transactions) {
+            TodoSchedulePolicy clock, PlatformTransactionManager transactions,
+            com.swu.atch.reward.service.RewardSettlementService rewards) {
         this.users = users; this.todos = todos; this.snapshots = snapshots; this.states = states;
         this.credentials = credentials; this.clock = clock;
+        this.rewards = rewards;
         batch = new TransactionTemplate(transactions);
         batch.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -74,7 +77,9 @@ public class DailySettlementService {
                     user.getId(), today, TodoStatus.COMPLETED)) todo.rollOverTo(today);
             return states.save(new UserDailySettlementState(user, today));
         });
-        int days = 0;
+        var recovered = rewards.recoverLocked(user, state, now, BATCH_DAYS);
+        if (!recovered.complete()) return false;
+        int days = recovered.processed();
         while (state.getNextSettlementDate().isBefore(today) && days++ < BATCH_DAYS) {
             LocalDate date = state.getNextSettlementDate();
             Instant boundary = date.plusDays(1).atStartOfDay(SEOUL).toInstant();
@@ -91,6 +96,7 @@ public class DailySettlementService {
                 } else snapshots.save(expected);
                 if (todo.getStatus() != TodoStatus.COMPLETED) todo.rollOverTo(date.plusDays(1));
             }
+            rewards.settleLocked(user, date, now);
             state.settle(date);
         }
         states.flush();

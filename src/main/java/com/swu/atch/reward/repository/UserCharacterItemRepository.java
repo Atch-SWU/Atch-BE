@@ -1,5 +1,13 @@
 package com.swu.atch.reward.repository;
 
+import com.swu.atch.reward.domain.ItemGrade;
+import com.swu.atch.reward.domain.ItemCategory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
 import com.swu.atch.reward.domain.UserCharacterItem;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -25,4 +33,20 @@ public interface UserCharacterItemRepository
     long countByUser_IdAndCharacterItem_ActiveTrue(
             Long userId
     );
+
+    @EntityGraph(attributePaths = "characterItem")
+    @Query(value = """
+            select owned from UserCharacterItem owned join owned.characterItem item
+            where owned.user.id=:userId
+              and (:grade is null or item.grade=:grade)
+              and (:category is null or item.category=:category)
+            """, countQuery = """
+            select count(owned) from UserCharacterItem owned join owned.characterItem item
+            where owned.user.id=:userId
+              and (:grade is null or item.grade=:grade)
+              and (:category is null or item.category=:category)
+            """)
+    Page<UserCharacterItem> findOwned(@Param("userId") Long userId, @Param("grade") ItemGrade grade,
+                                     @Param("category") ItemCategory category, Pageable pageable);
+
 }

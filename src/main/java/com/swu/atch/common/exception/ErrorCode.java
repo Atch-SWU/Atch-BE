@@ -7,6 +7,8 @@ import org.springframework.http.HttpStatus;
 // 도메인별 상세 에러코드 추후 확장
 public enum ErrorCode {
 
+    REWARD_SETTLEMENT_PENDING(HttpStatus.SERVICE_UNAVAILABLE, "보상 정산을 준비 중입니다. 잠시 후 다시 시도해주세요."),
+
     RECURRENCE_RECOMMENDATION_DISABLED(HttpStatus.CONFLICT, "반복 추천 설정이 꺼져 있습니다."),
     RECURRENCE_STATE_CONFLICT(HttpStatus.CONFLICT, "추천 또는 반복 규칙이 변경되었습니다. 최신 정보를 확인해주세요."),
     RECURRENCE_RULE_OVERLAP(HttpStatus.CONFLICT, "같은 일정에 겹치는 반복 규칙이 이미 있습니다."),
