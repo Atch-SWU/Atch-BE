@@ -47,6 +47,10 @@
 
 앱 시작이 Flyway 적용을 동반할 수 있다. 이미지 복귀로 DB/이월/Snapshot까지 복구되지는 않는다. 실제 로그/응답을 받은 뒤에만 운영 배포/검증을 기록하고 미확인 상태를 추정하지 않는다.
 
+현재 CI/CD는 main push 또는 workflow_dispatch → 테스트 → linux/arm64 이미지 ECR 게시 → SSM 배포다. main push/수동 워크플로 실행을 검토할 때는 운영 배포 영향까지 확인한다. 실제 커밋·서버 경로·실행 근거는 [CURRENT_STATUS.md](CURRENT_STATUS.md), 구성과 환경변수 검토는 [2026-11-03 운영 점검](history/2026-11-03-server-migration/verification.md)을 참조한다.
+
+`.env.production` 수정은 실행 중인 컨테이너 환경을 즉시 바꾸지 않는다. 반영에는 앱 컨테이너 재생성이 필요하며 서버 설정 수정·재시작은 문서 검토와 별도 승인 범위다. 배포 스크립트의 이미지 주소 사본을 DB 백업이나 자동 복구로 간주하지 않는다.
+
 ## OpenAPI 및 Swagger
 
 - REST API 변경 시 실제 DTO·HTTP 상태·인증·오류 응답을 함께 갱신한다. 데이터 계층만 있는 기능을 실제 API로 문서화하지 않는다.
