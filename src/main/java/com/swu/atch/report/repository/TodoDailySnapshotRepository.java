@@ -1,5 +1,9 @@
 package com.swu.atch.report.repository;
 
+import java.time.Instant;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
 import com.swu.atch.report.domain.TodoDailySnapshot;
 import com.swu.atch.todo.domain.TodoStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -47,4 +51,25 @@ public interface TodoDailySnapshotRepository
             LocalDate scheduleDate,
             TodoStatus statusAtDayEnd
     );
+
+    interface RewardCounts {
+        long getAssignedTodoCount();
+        long getCompletedTodoCount();
+        long getInvalidSnapshotCount();
+    }
+
+    // 현재 Todo 상태/삭제 여부로 과거 Snapshot을 제외하지 않는다.
+    @Query("""
+            select count(s) as assignedTodoCount,
+                   coalesce(sum(case when s.statusAtDayEnd=com.swu.atch.todo.domain.TodoStatus.COMPLETED
+                                     then 1 else 0 end),0) as completedTodoCount,
+                   coalesce(sum(case when s.todo.user.id<>:userId or s.snapshotAt<>:boundary
+                                      or (s.statusAtDayEnd=com.swu.atch.todo.domain.TodoStatus.COMPLETED
+                                          and (s.completedAtSnapshot is null or s.completedAtSnapshot>:boundary))
+                                     then 1 else 0 end),0) as invalidSnapshotCount
+            from TodoDailySnapshot s where s.user.id=:userId and s.scheduleDate=:date
+            """)
+    RewardCounts rewardCounts(@Param("userId") Long userId, @Param("date") LocalDate date,
+                              @Param("boundary") Instant boundary);
+
 }

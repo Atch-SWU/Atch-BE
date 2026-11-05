@@ -14,7 +14,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query(value = """
             select u.id from users u left join user_daily_settlement_states d on d.user_id=u.id
             where u.id > :afterId and (
-              d.next_settlement_date < :today or (d.user_id is null and exists(select 1 from todos t where t.user_id=u.id)))
+              d.next_settlement_date < :today
+              or (d.user_id is null and exists(select 1 from todos t where t.user_id=u.id))
+              or (d.tracking_started_on < d.next_settlement_date
+                  and (select count(*) from reward_settlements r where r.user_id=u.id
+                       and r.reward_date>=d.tracking_started_on and r.reward_date<d.next_settlement_date)
+                      < (d.next_settlement_date-d.tracking_started_on)))
             order by u.id limit 100
             """, nativeQuery = true)
     java.util.List<Long> findDailyMaintenanceCandidates(@Param("afterId") Long afterId, @Param("today") java.time.LocalDate today);

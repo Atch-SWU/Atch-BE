@@ -1,5 +1,11 @@
 package com.swu.atch.reward.repository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import java.util.List;
+
 import com.swu.atch.reward.domain.RewardSettlement;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -21,4 +27,21 @@ public interface RewardSettlementRepository
             Long userId,
             LocalDate rewardDate
     );
+
+    Page<RewardSettlement> findAllByUser_IdAndRewardDateBetween(
+            Long userId, LocalDate from, LocalDate to, Pageable pageable);
+
+    // untilDate는 일일 확정 커서의 다음 날짜(미포함)다. 최대 32개로 다음 묶음 존재도 확인한다.
+    @Query(value = """
+            select cast(d.day as date)
+            from generate_series(cast(:fromDate as timestamp),
+                                 cast(:untilDate as timestamp) - interval '1 day',
+                                 interval '1 day') as d(day)
+            where not exists (select 1 from reward_settlements r
+                              where r.user_id=:userId and r.reward_date=cast(d.day as date))
+            order by d.day limit :limit
+            """, nativeQuery = true)
+    List<LocalDate> findMissingDates(@Param("userId") Long userId, @Param("fromDate") LocalDate fromDate,
+                                   @Param("untilDate") LocalDate untilDate, @Param("limit") int limit);
+
 }
