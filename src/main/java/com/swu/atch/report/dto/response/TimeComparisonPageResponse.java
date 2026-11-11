@@ -35,15 +35,17 @@ public record TimeComparisonPageResponse(
             String title,
             @Schema(description = "작업 완료 시각(UTC). 완료되지 않았으면 null입니다.")
             Instant completedAt,
-            @Schema(description = "사용자가 직접 입력한 예상 작업 소요시간(분). AI 제안 수락 여부와 별도로 보존한 원본 값입니다.")
-            int userEstimatedDurationMinutes,
-            @Schema(description = "서버가 제안한 AI 예상 작업 소요시간(분). 제안이 없으면 null일 수 있습니다.")
+            @Schema(description = "직접 입력하거나 반복 규칙에서 복사한 원본 예상시간(분). 미설정이면 null입니다.", nullable = true)
+            Integer userEstimatedDurationMinutes,
+            @Schema(description = "서버가 제안한 AI 예상 작업 소요시간(분). 제안이 없으면 null입니다.", nullable = true)
             Integer aiEstimatedDurationMinutes,
-            @Schema(description = "최종 선택된 예상시간 종류. USER=직접 입력시간, AI=AI 제안시간입니다.")
+            @Schema(description = "최종 선택 유형. USER=원본 예상시간, AI=AI 제안시간, 미설정이면 null입니다.", nullable = true)
             SelectedEstimateType selectedEstimateType,
-            @Schema(description = "종료된 작업 세션의 실제 집중시간 합계(초). 실행 중인 구간의 경과시간은 포함하지 않습니다.")
+            @Schema(description = "종료된 작업 세션의 실제 집중시간 합계(초). 종료 기록이 없으면 0이며 오차는 계산하지 않습니다.")
             long actualDurationSeconds,
-            @Schema(description = "실제 초 - 사용자 예상 분*60. 음수 허용") long userErrorSeconds,
-            @Schema(description = "실제 초 - AI 예상 분*60. AI 제안이 없으면 null") Long aiErrorSeconds) { }
+            @Schema(description = "실제 초 - 사용자 예상 분 × 60. 예상 또는 실제 기록이 없으면 null입니다.", nullable = true)
+            Long userErrorSeconds,
+            @Schema(description = "실제 초 - AI 예상 분 × 60. 제안 또는 실제 기록이 없으면 null입니다.", nullable = true)
+            Long aiErrorSeconds) { }
 }
 

@@ -30,14 +30,14 @@ public class RecurrenceRuleService {
         var user = access.lock(id, stamp); access.requireRecommendation(user);
         var p = recommendations.owned(id, patternId);
         int deadline = offset(p.isAllDay(), input.defaultDeadlineOffsetMinutes());
-        if (input.defaultUserEstimatedDurationMinutes() == null || input.defaultUserEstimatedDurationMinutes() <= 0
+        if (nonPositive(input.defaultUserEstimatedDurationMinutes())
                 || input.memo() != null && input.memo().length() > 2000) throw invalid();
         var old = rules.findBySourcePattern_IdAndUser_Id(patternId, id);
         if (old.isPresent()) {
             var r = old.get();
             if (r.getDeletedAt() == null && r.isEnabled() && key(r).equals(key(p)) && Objects.equals(r.getMemo(), input.memo())
                     && r.getDefaultDeadlineOffsetMinutes() == deadline
-                    && r.getDefaultUserEstimatedDurationMinutes().equals(input.defaultUserEstimatedDurationMinutes()))
+                    && Objects.equals(r.getDefaultUserEstimatedDurationMinutes(), input.defaultUserEstimatedDurationMinutes()))
                 return new Registered(response(r), true);
             throw conflict();
         }
@@ -71,13 +71,13 @@ public class RecurrenceRuleService {
     public RecurrenceRuleResponse update(Long id, String stamp, Long ruleId, RecurrenceRuleUpdateRequest input) {
         access.lock(id, stamp); var r = active(id, ruleId);
         if (input.taskName() == null || input.taskName().isBlank() || input.taskName().trim().length() > 200
-                || input.allDay() == null || input.defaultUserEstimatedDurationMinutes() == null
-                || input.defaultUserEstimatedDurationMinutes() <= 0 || input.memo() != null && input.memo().length() > 2000) throw invalid();
+                || input.allDay() == null || nonPositive(input.defaultUserEstimatedDurationMinutes())
+                || input.memo() != null && input.memo().length() > 2000) throw invalid();
         int deadline = offset(input.allDay(), input.defaultDeadlineOffsetMinutes());
         schedule(r.getFrequency(), input.dayOfWeek(), input.allDay(), input.scheduledTime());
         var k = new Key(input.taskName().trim(), r.getFrequency(), input.dayOfWeek(), input.allDay(), input.scheduledTime());
         if (key(r).equals(k) && Objects.equals(r.getMemo(), input.memo()) && r.getDefaultDeadlineOffsetMinutes() == deadline
-                && r.getDefaultUserEstimatedDurationMinutes().equals(input.defaultUserEstimatedDurationMinutes())) return response(r);
+                && Objects.equals(r.getDefaultUserEstimatedDurationMinutes(), input.defaultUserEstimatedDurationMinutes())) return response(r);
         version(input.expectedUpdatedAt(), r.getUpdatedAt());
         requireNoOverlap(id, ruleId, k);
         r.updateDetails(k.name(), input.memo(), k.day(), k.time(), k.allDay(), deadline,
@@ -102,6 +102,9 @@ public class RecurrenceRuleService {
     }
     private RecurrenceRule active(Long user, Long id) {
         return rules.findByIdAndUser_IdAndDeletedAtIsNull(id, user).orElseThrow(RecurrencePolicy::missing);
+    }
+    private boolean nonPositive(Integer minutes) {
+        return minutes != null && minutes <= 0;
     }
     private void requireNoOverlap(Long user, Long except, Key candidate) {
         if (rules.findAllByUser_IdAndDeletedAtIsNullOrderByIdDesc(user).stream()

@@ -16,10 +16,6 @@ public class TodoResponseMapper {
 
     public TodoResponse toResponse(Todo todo, long actualSeconds, Instant now) {
         boolean completed = todo.getStatus() == TodoStatus.COMPLETED;
-        Integer estimate =
-                todo.getSelectedEstimateType() == SelectedEstimateType.AI
-                        ? todo.getAiEstimatedDurationMinutes()
-                        : todo.getUserEstimatedDurationMinutes();
         return new TodoResponse(
                 todo.getId(),
                 todo.getTitle(),
@@ -35,7 +31,7 @@ public class TodoResponseMapper {
                 todo.getUserEstimateSource(),
                 todo.getAiEstimatedDurationMinutes(),
                 todo.getSelectedEstimateType(),
-                estimate,
+                todo.appliedEstimatedDurationMinutes(),
                 actualSeconds,
                 !completed && !now.isBefore(todo.getDueAt()),
                 todo.getCurrentScheduleDate().isAfter(schedule.seoulDate(todo.getStartAt())),

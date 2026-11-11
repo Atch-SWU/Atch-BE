@@ -57,13 +57,18 @@ public class TodoController {
             {"title":"발표 준비","memo":null,"startDate":"2026-10-29","startTime":null,
              "dueDate":"2026-10-29","dueTime":null,"allDay":true,"userEstimatedDurationMinutes":30}
             """;
+    private static final String NO_ESTIMATE_EXAMPLE = """
+            {"title":"발표 준비","startDate":"2026-11-09","startTime":null,
+             "dueDate":"2026-11-09","dueTime":null,"allDay":true,"userEstimatedDurationMinutes":null}
+            """;
 
     // 날짜·시각은 서울 현지 입력으로 받고, 저장·응답 시각은 Instant로 변환한다.
     @PostMapping(consumes = "application/json", produces = "application/json")
     @Operation(summary = "투두 생성", description = """
             ### 사용 안내
 
-            - 일반 투두를 USER_INPUT·USER·PENDING으로 생성하고 currentScheduleDate=startDate로 배정합니다.
+            - 일반 투두는 PENDING으로 생성하고 currentScheduleDate=startDate로 배정합니다. 예상시간이 있으면 USER_INPUT·USER로 저장합니다.
+            - 사용자 예상시간은 선택입니다. 생략하거나 null이면 예상시간·출처·선택 유형이 모두 null입니다. 입력 시 양의 정수(분)입니다.
             - 신규 시작 날짜는 서울 기준 오늘 이후이며 오늘의 지난 시각은 허용합니다. 시각 지정은 마감>시작이어야 합니다. 미완료 투두의 마감 초과는 마감에 도달한 시각부터 판정합니다.
             - allDay=true는 같은 시작/마감 날짜와 null 시각을 입력하며 서울 기준 시각 00:00부터 다음 날 00:00 미만입니다.
             - userId·상태·반복 식별값·AI 예상값은 입력하지 않습니다. AI 초안 연결 시 creationRequestId와 estimateChoice를 전달합니다. 동일 생성 요청은 기존 응답을 200으로 반환합니다. 일반 생성의 응답 유실은 목록으로 확인합니다.
@@ -86,7 +91,8 @@ public class TodoController {
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = TodoCreateRequest.class),
-                            examples = {@ExampleObject(name = "시각 지정", value = TIMED_EXAMPLE), @ExampleObject(name = "하루종일", value = ALL_DAY_EXAMPLE)}))
+                            examples = {@ExampleObject(name = "시각 지정", value = TIMED_EXAMPLE), @ExampleObject(name = "하루종일", value = ALL_DAY_EXAMPLE),
+                                    @ExampleObject(name = "예상시간 없이 생성", value = NO_ESTIMATE_EXAMPLE)}))
             @Valid @RequestBody TodoCreateRequest request
     ) {
         if (request.estimateChoice() != null) {
@@ -160,8 +166,9 @@ public class TodoController {
             - 수정 가능한 폼 전체를 전송합니다. memo=null은 기존 메모 삭제입니다.
             - 실행 중이면 일시정지 후, 완료 상태이면 완료 취소 후 수정합니다(충돌 409).
             - 제목·메모만 수정하면 이월된 배정 날짜를 유지하고, 시작 날짜를 실제 변경할 때만 재배정합니다. 과거 날짜로 수정해도 현재 배정 날짜는 서울 오늘보다 과거로 되돌리지 않습니다.
-            - 반복 규칙·불변 회차 식별값은 유지합니다. 사용자 예상시간을 직접 변경하면 출처를 USER_INPUT으로 바꿉니다.
-            - 예측 입력(작업명·메모·사용자 예상시간)이 변경되면 AI 예상값·선택을 무효화하고 사용자 예상시간을 사용합니다.
+            - 반복 규칙·불변 회차 식별값은 유지합니다. 예상시간을 직접 입력하거나 변경하면 출처를 USER_INPUT으로 바꿉니다.
+            - 예상시간을 유지하려면 기존 값을 보내세요. 생략하거나 null이면 기존 예상시간·AI 제안·출처·선택을 해제합니다.
+            - 예측 입력이 변경되면 기존 제안을 해제합니다. 새 제안을 적용하지 않았다면 입력한 시간만 사용합니다.
             - 기존 작업 세션·일별 확정 기록·실험 이력은 보존합니다. estimateChoice를 전달하면 본인 초안·입력·제안 토큰을 검증하고 USER 또는 AI를 선택합니다.
             """)
     @ApiResponse(responseCode = "200", description = "수정된 Todo", content = @Content(schema = @Schema(implementation = TodoResponse.class)))
@@ -172,7 +179,8 @@ public class TodoController {
             @Parameter(description = "본인 투두 ID. 생성·목록·상세 응답의 id를 사용합니다.", example = "1", schema = @Schema(minimum = "1")) @PathVariable Long todoId,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = TodoUpdateRequest.class),
-                            examples = {@ExampleObject(name = "시각 지정", value = TIMED_EXAMPLE), @ExampleObject(name = "하루종일", value = ALL_DAY_EXAMPLE)}))
+                            examples = {@ExampleObject(name = "시각 지정", value = TIMED_EXAMPLE), @ExampleObject(name = "하루종일", value = ALL_DAY_EXAMPLE),
+                                    @ExampleObject(name = "예상시간 해제", value = NO_ESTIMATE_EXAMPLE)}))
             @Valid @RequestBody TodoUpdateRequest request
     ) {
         requirePositiveId(todoId);

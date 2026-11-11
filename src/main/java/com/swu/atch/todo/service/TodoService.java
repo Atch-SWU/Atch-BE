@@ -53,10 +53,12 @@ public class TodoService {
         Instant now = locked.now();
         schedule.requireNewStartDate(request.startDate(), now);
         var times = schedule.schedule(request.startDate(), request.startTime(), request.dueDate(), request.dueTime(), request.allDay());
+        var minutes = request.userEstimatedDurationMinutes();
         var todo = Todo.builder().user(user).title(request.title()).memo(request.memo())
                 .startAt(times.startAt()).dueAt(times.dueAt()).currentScheduleDate(request.startDate()).allDay(request.allDay())
-                .userEstimatedDurationMinutes(request.userEstimatedDurationMinutes())
-                .userEstimateSource(UserEstimateSource.USER_INPUT).selectedEstimateType(SelectedEstimateType.USER).build();
+                .userEstimatedDurationMinutes(minutes)
+                .userEstimateSource(minutes == null ? null : UserEstimateSource.USER_INPUT)
+                .selectedEstimateType(minutes == null ? null : SelectedEstimateType.USER).build();
         // ID·Timestamp를 확정해 저장된 값을 응답한다.
         todos.saveAndFlush(todo);
         return toResponse(todo, 0L, now);

@@ -139,10 +139,12 @@ public class TimerService {
             previous = s;
         }
         var next = todos.findTop3ByUser_IdAndDeletedAtIsNullAndStatusInOrderByCurrentScheduleDateAscStartAtAscIdAsc(id, List.of(TodoStatus.PENDING, TodoStatus.PAUSED))
-                .stream().map(t -> new TodoCompletionSummaryResponse.NextTodo(t.getId(), t.getTitle(), t.getCurrentScheduleDate(), t.getDueAt(), estimate(t))).toList();
+                .stream().map(t -> new TodoCompletionSummaryResponse.NextTodo(t.getId(), t.getTitle(),
+                        t.getCurrentScheduleDate(), t.getDueAt(), t.appliedEstimatedDurationMinutes())).toList();
         long actual = sessions.sumDurationSecondsByTodoIdAndUserId(todoId, id);
         return new TodoCompletionSummaryResponse(todoService.toResponse(todo, actual, locked.now()), pauses, resumes, changed,
-                Math.max(0, Duration.between(todo.getDueAt(), todo.getCompletedAt()).getSeconds()), Math.max(0, actual - estimate(todo) * 60L), next);
+                Math.max(0, Duration.between(todo.getDueAt(), todo.getCompletedAt()).getSeconds()),
+                estimateOverrun(actual, todo.appliedEstimatedDurationMinutes()), next);
     }
 
     private LockedUser lock(Long id, String stamp) {
@@ -208,17 +210,19 @@ public class TimerService {
     private TimerStateResponse state(Long id, Instant now) {
         var waiting = pending(id, now); var open = onlyOpen(id); var focus = latestFocus(id);
         if (open != null && (focus == null || !focus.getId().equals(open.getId()) || open.getTodo().getStatus() != TodoStatus.IN_PROGRESS)) throw conflict();
-        if (focus == null) return new TimerStateResponse(TimerStateResponse.State.IDLE, null, null, null, null, null, null, 0,0,0,0,0,null,now);
+        if (focus == null) return new TimerStateResponse(TimerStateResponse.State.IDLE, null, null, null, null, null, null, 0,0,0,null,null,null,now);
         var todo = focus.getTodo();
         if (open == null && todo.getStatus() == TodoStatus.IN_PROGRESS || open != null && now.isBefore(open.getStartedAt())) throw conflict();
         long closed = sessions.sumDurationSecondsByTodoIdAndUserId(todo.getId(), id);
         long elapsed = open == null ? 0 : Math.max(0, Duration.between(open.getStartedAt(), now).getSeconds());
-        long total = closed + elapsed; long estimated = estimate(todo) * 60L;
+        long total = closed + elapsed;
+        Integer estimated = todo.appliedEstimatedDurationMinutes();
         var wait = waiting == null ? null : new TimerStateResponse.SwitchWait(waiting.getRequestId(), waiting.getTargetTodo().getId(),
                 waiting.getRequestedAt(), waiting.getReadyAt(), waiting.getExpiresAt());
         return new TimerStateResponse(wait != null ? TimerStateResponse.State.SWITCH_WAITING : open != null ? TimerStateResponse.State.RUNNING : TimerStateResponse.State.PAUSED,
                 todo.getId(), todo.getTitle(), todo.getStatus(), open == null ? null : open.getId(), focus.getId(),
-                open == null ? null : open.getStartedAt(), closed, elapsed, total, Math.max(0,estimated-total), Math.max(0,total-estimated),wait,now);
+                open == null ? null : open.getStartedAt(), closed, elapsed, total, estimated,
+                estimateOverrun(total, estimated), wait, now);
     }
     private TimerSwitchResponse response(TimerSwitch item, Long id, Instant now) {
         return new TimerSwitchResponse(item.getRequestId(), item.getState() == TimerSwitchState.STARTED ? TimerSwitchResponse.State.STARTED : TimerSwitchResponse.State.WAITING,
@@ -226,7 +230,9 @@ public class TimerService {
     }
     private record LockedUser(User user, Instant now) { }
     private boolean startable(Todo todo) { return todo.getStatus() == TodoStatus.PENDING || todo.getStatus() == TodoStatus.PAUSED; }
-    private int estimate(Todo t) { return t.getSelectedEstimateType() == SelectedEstimateType.AI ? t.getAiEstimatedDurationMinutes() : t.getUserEstimatedDurationMinutes(); }
+    private Long estimateOverrun(long actualSeconds, Integer estimateMinutes) {
+        return estimateMinutes == null ? null : Math.max(0, actualSeconds - estimateMinutes * 60L);
+    }
     private BusinessException conflict() { return new BusinessException(ErrorCode.TIMER_STATE_CONFLICT); }
     private BusinessException notFound() { return new BusinessException(ErrorCode.RESOURCE_NOT_FOUND); }
 }

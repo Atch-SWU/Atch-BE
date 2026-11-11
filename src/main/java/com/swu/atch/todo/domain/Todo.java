@@ -83,16 +83,12 @@ public class Todo {
     private boolean allDay;
 
     // 사용자 예상 소요 시간
-    @Column(
-            name = "user_estimated_duration_minutes",
-            nullable = false
-    )
+    @Column(name = "user_estimated_duration_minutes")
     private Integer userEstimatedDurationMinutes;
 
     @Enumerated(EnumType.STRING)
     @Column(
             name = "user_estimate_source",
-            nullable = false,
             length = 30
     )
     private UserEstimateSource userEstimateSource;
@@ -104,7 +100,6 @@ public class Todo {
     @Enumerated(EnumType.STRING)
     @Column(
             name = "selected_estimate_type",
-            nullable = false,
             length = 20
     )
     private SelectedEstimateType selectedEstimateType;
@@ -158,13 +153,6 @@ public class Todo {
         Objects.requireNonNull(
                 currentScheduleDate, "일정 날짜는 필수입니다."
         );
-        Objects.requireNonNull(
-                userEstimateSource, "예상 시간 출처는 필수입니다."
-        );
-        Objects.requireNonNull(
-                selectedEstimateType, "예상 시간 선택값은 필수입니다."
-        );
-
         if (title == null || title.isBlank()
                 || title.length() > 200) {
             throw new IllegalArgumentException(
@@ -185,11 +173,17 @@ public class Todo {
             );
         }
 
-        if (userEstimatedDurationMinutes == null
-                || userEstimatedDurationMinutes <= 0) {
+        // 예상 시간을 비우면 그 값에 의존하는 선택과 제안도 저장하지 않는다.
+        if (userEstimatedDurationMinutes == null) {
+            if (userEstimateSource != null || selectedEstimateType != null || aiEstimatedDurationMinutes != null) {
+                throw new IllegalArgumentException("예상 시간이 없으면 출처·선택·AI 제안도 없어야 합니다.");
+            }
+        } else if (userEstimatedDurationMinutes <= 0) {
             throw new IllegalArgumentException(
                     "사용자 예상 시간은 0분보다 커야 합니다."
             );
+        } else if (userEstimateSource == null || selectedEstimateType == null) {
+            throw new IllegalArgumentException("예상 시간의 출처와 선택값은 필수입니다.");
         }
 
         if (aiEstimatedDurationMinutes != null
@@ -265,7 +259,7 @@ public class Todo {
         Objects.requireNonNull(startAt, "시작 일시는 필수입니다.");
         Objects.requireNonNull(dueAt, "마감 일시는 필수입니다.");
         if (title == null || title.isBlank() || title.length() > 200
-                || userEstimatedDurationMinutes == null || userEstimatedDurationMinutes <= 0
+                || (userEstimatedDurationMinutes != null && userEstimatedDurationMinutes <= 0)
                 || !dueAt.isAfter(startAt)) {
             throw new IllegalArgumentException("Todo 편집 값이 올바르지 않습니다.");
         }
@@ -286,10 +280,16 @@ public class Todo {
         if (!this.startAt.atZone(SERVICE_ZONE).toLocalDate().equals(newStartDate)) {
             this.currentScheduleDate = newStartDate;
         }
-        if (durationChanged) this.userEstimateSource = UserEstimateSource.USER_INPUT;
-        if (predictionInputChanged) {
+        if (userEstimatedDurationMinutes == null) {
+            this.userEstimateSource = null;
             this.aiEstimatedDurationMinutes = null;
-            this.selectedEstimateType = SelectedEstimateType.USER;
+            this.selectedEstimateType = null;
+        } else {
+            if (durationChanged) this.userEstimateSource = UserEstimateSource.USER_INPUT;
+            if (predictionInputChanged) {
+                this.aiEstimatedDurationMinutes = null;
+                this.selectedEstimateType = SelectedEstimateType.USER;
+            }
         }
         this.title = normalizedTitle;
         this.memo = memo;
@@ -303,13 +303,18 @@ public class Todo {
     public void applyEstimateChoice(Integer aiMinutes, SelectedEstimateType type) {
         requireActive();
         if (status == TodoStatus.IN_PROGRESS || status == TodoStatus.COMPLETED
-                || type == null || (aiMinutes != null && aiMinutes <= 0)
+                || userEstimatedDurationMinutes == null || type == null || (aiMinutes != null && aiMinutes <= 0)
                 || (type == SelectedEstimateType.AI && aiMinutes == null)) {
             throw new IllegalArgumentException("예상시간 선택 상태가 올바르지 않습니다.");
         }
         aiEstimatedDurationMinutes = aiMinutes;
         selectedEstimateType = type;
         userEstimateSource = UserEstimateSource.USER_INPUT;
+    }
+
+    public Integer appliedEstimatedDurationMinutes() {
+        return selectedEstimateType == SelectedEstimateType.AI
+                ? aiEstimatedDurationMinutes : userEstimatedDurationMinutes;
     }
 
     // 반복 완료는 최초 완료 시각을 보존한다. Session 종료는 Service에서 함께 처리한다.

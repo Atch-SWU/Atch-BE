@@ -394,6 +394,34 @@ class TodoApiIntegrationTest extends IsolatedAuthIntegrationTest {
         }
     }
 
+    @Test
+    void createsWithoutEstimateAndReplacesOrClearsTheEstimateOnPut() throws Exception {
+        var a = actor();
+        var form = input("예상시간 선택", DAY);
+        form.remove("userEstimatedDurationMinutes");
+        var created = body(a, post("/api/v1/todos"), form, 201);
+        long id = created.path("id").asLong();
+        assertThat(created.path("estimatedDurationMinutes").isNull()).isTrue();
+        assertThat(created.path("userEstimateSource").isNull()).isTrue();
+        assertThat(created.path("selectedEstimateType").isNull()).isTrue();
+
+        form.put("userEstimatedDurationMinutes", 15);
+        var updated = body(a, put(path(id)), form, 200);
+        assertThat(updated.path("estimatedDurationMinutes").asInt()).isEqualTo(15);
+        assertThat(updated.path("userEstimateSource").asText()).isEqualTo("USER_INPUT");
+        assertThat(updated.path("selectedEstimateType").asText()).isEqualTo("USER");
+
+        form.put("userEstimatedDurationMinutes", null);
+        body(a, put(path(id)), form, 200);
+        var reloaded = body(a, get(path(id)), null, 200);
+        for (String field : List.of("userEstimatedDurationMinutes", "estimatedDurationMinutes",
+                "aiEstimatedDurationMinutes", "userEstimateSource", "selectedEstimateType")) {
+            assertThat(reloaded.path(field).isNull()).as(field).isTrue();
+        }
+        form.put("userEstimatedDurationMinutes", -1);
+        body(a, put(path(id)), form, 400);
+    }
+
     private Actor actor() {
         var user = users.saveAndFlush(new User("투두검증"));
         var account = accounts.saveAndFlush(AuthAccount.local(user, UUID.randomUUID() + "@atch.invalid", encoder.encode(PASSWORD)));

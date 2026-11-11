@@ -34,7 +34,7 @@ public record RecurrenceRuleResponse(
         @Schema(description = "시작부터 마감까지의 간격(분). 하루종일은 1440으로 고정합니다.")
         Integer defaultDeadlineOffsetMinutes,
 
-        @Schema(description = "기본 예상 작업 소요시간(분)입니다.")
+        @Schema(description = "기본 예상 작업 소요시간(분). 미설정이면 null입니다.", nullable = true)
         Integer defaultUserEstimatedDurationMinutes,
 
         @Schema(description = "이 규칙으로 새 Todo를 생성할지 여부입니다.")

@@ -13,11 +13,11 @@ public record DecomposedTodoCreateResponse(
         UUID creationRequestId,
         @Schema(description = "조회한 항목 목록입니다.")
         List<CreatedTodo> items,
-        @Schema(description = "각 작업에 사용자가 직접 입력한 예상시간의 합계(분)입니다.")
-        long totalUserEstimatedDurationMinutes,
-        @Schema(description = "각 작업의 AI 제안시간 합계(분)입니다. 전체 시간을 비율로 나눈 값이 아닙니다.")
+        @Schema(description = "직접 입력한 항목의 예상시간 합계(분). 입력 항목이 없으면 null입니다.", nullable = true)
+        Long totalUserEstimatedDurationMinutes,
+        @Schema(description = "입력 항목 전체에 대한 검증된 AI 제안시간 합계(분). 제안이 없으면 null입니다.", nullable = true)
         Long totalAiEstimatedDurationMinutes,
-        @Schema(description = "최종 선택된 예상시간 종류. USER=직접 입력시간, AI=AI 제안시간입니다.")
+        @Schema(description = "예상시간을 입력한 항목에 적용한 선택. 입력 항목이 없으면 null입니다.", nullable = true)
         SelectedEstimateType selectedEstimateType,
         @Schema(description = "동일한 저장 요청을 다시 받아 기존 저장 결과를 반환했는지 여부입니다.")
         boolean replayed

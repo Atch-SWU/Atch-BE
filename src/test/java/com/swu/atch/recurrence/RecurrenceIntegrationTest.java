@@ -169,6 +169,57 @@ class RecurrenceIntegrationTest extends IsolatedAuthIntegrationTest {
         assertThat(draft.decompositionUsage().state().name()).isEqualTo("NOT_APPLICABLE");
     }
 
+    @Test void latestUnsetEstimateIsSuggestedAndGeneratedWithoutCalibration() throws Exception {
+        var a = actor();
+        var older = observed(a, "선택 반복", DAY.minusDays(1), false);
+        observed(a, "선택 반복", DAY, false, null);
+        var session = com.swu.atch.session.domain.Session.start(older, NOW.minusSeconds(3600));
+        session.finish(NOW, com.swu.atch.session.domain.SessionEndReason.COMPLETED);
+        em.persist(session);
+        older.complete(NOW);
+        todos.flush();
+
+        var item = recommendations(a).path("items").get(0);
+        assertThat(item.path("templateSuggestion").path("defaultUserEstimatedDurationMinutes").isNull()).isTrue();
+        var input = registration(item, false);
+        input.remove("defaultUserEstimatedDurationMinutes");
+        String register = "/api/v1/recurrence-recommendations/" + item.path("patternId").asLong() + "/register";
+        var registered = call(a, post(register), input, 201);
+        long id = registered.path("id").asLong();
+        assertThat(registered.path("defaultUserEstimatedDurationMinutes").isNull()).isTrue();
+        call(a, post(register), input, 200);
+        TIME.set(NOW.plusSeconds(86400));
+        assertThat(generation.prepare(a.id())).isEqualTo(1);
+        assertThat(generation.prepare(a.id())).isZero();
+        assertThat(jdbc.queryForObject("""
+                select count(*) from todos where recurrence_rule_id=?
+                  and user_estimated_duration_minutes is null and ai_estimated_duration_minutes is null
+                  and user_estimate_source is null and selected_estimate_type is null
+                """, Long.class, id)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from time_estimation_profiles where user_id=?",
+                Long.class, a.id())).isZero();
+
+        var r = rules.findById(id).orElseThrow();
+        var set = edit(r);
+        set.put("defaultUserEstimatedDurationMinutes", 15);
+        var changed = call(a, put("/api/v1/recurrence-rules/" + id), set, 200);
+        assertThat(changed.path("defaultUserEstimatedDurationMinutes").asInt()).isEqualTo(15);
+        TIME.set(NOW.plusSeconds(172800));
+        assertThat(generation.prepare(a.id())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                select user_estimated_duration_minutes from todos
+                where recurrence_rule_id=? and recurrence_period_start_date=?
+                """, Integer.class, id, DAY.plusDays(2))).isEqualTo(15);
+        var clear = edit(rules.findById(id).orElseThrow());
+        clear.put("defaultUserEstimatedDurationMinutes", null);
+        assertThat(call(a, put("/api/v1/recurrence-rules/" + id), clear, 200)
+                .path("defaultUserEstimatedDurationMinutes").isNull()).isTrue();
+        assertThat(jdbc.queryForObject("""
+                select user_estimated_duration_minutes from todos
+                where recurrence_rule_id=? and recurrence_period_start_date=?
+                """, Integer.class, id, DAY.plusDays(2))).isEqualTo(15);
+    }
+
     @Test void deletedOrEditedOccurrenceCannotBeRecreatedAndFutureCalendarDoesNotPrefill() throws Exception {
         var a = actor(); var r = fixtureRule(a, "회차", false, RecurrenceFrequency.WEEKLY, NOW.minusSeconds(86400));
         assertThat(generation.prepare(a.id())).isEqualTo(1);
@@ -422,11 +473,15 @@ class RecurrenceIntegrationTest extends IsolatedAuthIntegrationTest {
         var stamp=credentials.stamp(account); return new Actor(u.getId(),stamp,jwt.issueAccessToken(u.getId(),stamp));
     }
     private Todo observed(Actor a,String title,LocalDate date,boolean allDay) {
+        return observed(a, title, date, allDay, 30);
+    }
+    private Todo observed(Actor a,String title,LocalDate date,boolean allDay,Integer minutes) {
         var start=(allDay?date.atStartOfDay(SEOUL):date.atTime(9,0).atZone(SEOUL)).toInstant();
         return todos.saveAndFlush(Todo.builder().user(users.getReferenceById(a.id())).title(title).allDay(allDay)
                 .startAt(start).dueAt(allDay?date.plusDays(1).atStartOfDay(SEOUL).toInstant():start.plusSeconds(3600))
-                .currentScheduleDate(date).userEstimatedDurationMinutes(30).userEstimateSource(UserEstimateSource.USER_INPUT)
-                .selectedEstimateType(SelectedEstimateType.USER).build());
+                .currentScheduleDate(date).userEstimatedDurationMinutes(minutes)
+                .userEstimateSource(minutes == null ? null : UserEstimateSource.USER_INPUT)
+                .selectedEstimateType(minutes == null ? null : SelectedEstimateType.USER).build());
     }
     private RecurrenceRule fixtureRule(Actor a,String name,boolean allDay,RecurrenceFrequency frequency,Instant boundary) {
         return new TransactionTemplate(transactions).execute(status->{

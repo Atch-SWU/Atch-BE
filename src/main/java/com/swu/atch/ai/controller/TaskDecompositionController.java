@@ -47,7 +47,7 @@ public class TaskDecompositionController {
 
             - 사용자가 이름·순서를 수정하고 항목을 추가·삭제할 수 있습니다.
             - 수동 추가 항목은 `/api/v1/ai/drafts`에 `parentDraftId`를 보내 새 ID를 받습니다.
-            - 시간 초깃값은 제안하지 않습니다. 각 세부 작업의 예상시간은 사용자가 직접 입력합니다.
+            - 시간 초깃값은 제안하지 않습니다. 각 세부 작업의 예상시간은 선택 입력입니다.
             - 필요하면 묶음 시간 예측 후 `/api/v1/todos/decomposed`로 최종 저장합니다.
 
             ### 제한·실패
@@ -71,14 +71,15 @@ public class TaskDecompositionController {
     @PostMapping(value = "/todos/decomposed", consumes = "application/json", produces = "application/json")
     @Operation(summary = "[프론트] 최종 승인한 세부 투두 일괄 저장", description = """
             ### 언제 호출하나요?
-            세부 작업 편집·개별 예상시간 입력·AI 제안 수락 여부를 모두 확정한 뒤 한 번 호출합니다.
+            세부 작업과 적용할 AI 제안을 최종 확정한 뒤 한 번 호출합니다. 일부 또는 전체 항목에 예상시간이 없어도 저장할 수 있습니다.
 
             ### 저장할 내용
 
             - `tasks`에 확정한 1~20개만 보냅니다. 원본 부모 투두는 생성하지 않습니다.
             - 원본 태스크명·공통 일정·메모를 각 투두에 복사합니다.
             - `estimateChoice` 생략 또는 USER 선택은 직접 입력시간, AI 선택은 서버 제안시간을 사용합니다. 직접 입력한 원본 시간은 따로 보존합니다.
-            - 묶음의 선택은 전체에 적용됩니다. `estimateChoice.draftId`는 원본 `decompositionDraftId`를 사용합니다.
+            - 묶음의 선택은 예상시간이 있는 항목에만 적용합니다. 미입력은 생략하거나 null로 보내고, 제안 토큰에는 그 항목을 포함하지 않습니다.
+            - `estimateChoice.draftId`는 원본 `decompositionDraftId`를 사용합니다. 합계는 예상시간이 있는 항목만 포함하며 해당 값이 하나도 없으면 null입니다.
             - 응답 배열은 요청 순서를 따르며 별도 영구 정렬 순서를 저장하지는 않습니다.
 
             ### 중복 저장 방지
@@ -91,7 +92,7 @@ public class TaskDecompositionController {
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = DecomposedTodoCreateRequest.class),
-                            examples = @ExampleObject(name = "요청 예시", value = "{\"creationRequestId\":\"33333333-3333-4333-8333-333333333333\",\"decompositionDraftId\":\"11111111-1111-4111-8111-111111111111\",\"sourceTaskName\":\"기획안 초안 작성\",\"memo\":null,\"startDate\":\"2026-10-29\",\"startTime\":\"18:00:00\",\"dueDate\":\"2026-10-29\",\"dueTime\":\"20:00:00\",\"allDay\":false,\"tasks\":[{\"draftId\":\"22222222-2222-4222-8222-222222222222\",\"title\":\"핵심 메시지 한 줄 정하기\",\"userEstimatedDurationMinutes\":10}],\"estimateChoice\":{\"draftId\":\"11111111-1111-4111-8111-111111111111\",\"selectedEstimateType\":\"USER\",\"predictionToken\":null}}")))
+                            examples = @ExampleObject(name = "요청 예시", value = "{\"creationRequestId\":\"33333333-3333-4333-8333-333333333333\",\"decompositionDraftId\":\"11111111-1111-4111-8111-111111111111\",\"sourceTaskName\":\"기획안 초안 작성\",\"memo\":null,\"startDate\":\"2026-10-29\",\"startTime\":\"18:00:00\",\"dueDate\":\"2026-10-29\",\"dueTime\":\"20:00:00\",\"allDay\":false,\"tasks\":[{\"draftId\":\"22222222-2222-4222-8222-222222222222\",\"title\":\"핵심 메시지 한 줄 정하기\",\"userEstimatedDurationMinutes\":10},{\"draftId\":\"44444444-4444-4444-8444-444444444444\",\"title\":\"참고 자료 읽기\"}],\"estimateChoice\":{\"draftId\":\"11111111-1111-4111-8111-111111111111\",\"selectedEstimateType\":\"USER\",\"predictionToken\":null}}")))
             @Valid @RequestBody DecomposedTodoCreateRequest request
     ) {
         var result = aiTodos.confirm(id(jwt), stamp(jwt), request);

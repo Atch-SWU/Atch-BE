@@ -19,8 +19,8 @@ public record TodoCompletionSummaryResponse(
         long switchCount,
         @Schema(description = "완료 시각이 마감보다 늦어진 시간(초). 마감 전에 완료했으면 0입니다.")
         long deadlineOverrunSeconds,
-        @Schema(description = "최종 선택 예상시간보다 더 집중한 시간(초). 초과하지 않았으면 0입니다.")
-        long estimateOverrunSeconds,
+        @Schema(description = "예상시간을 초과한 집중시간(초). 미설정이면 null, 초과하지 않았으면 0입니다.", nullable = true)
+        Long estimateOverrunSeconds,
         @Schema(description = "다음에 수행할 수 있는 투두 후보(최대 3개)입니다.")
         List<NextTodo> nextTodos
 ) {
@@ -33,7 +33,7 @@ public record TodoCompletionSummaryResponse(
             LocalDate currentScheduleDate,
             @Schema(description = "최초 마감 일시(UTC). 하루종일 일정이면 다음 날 서울 00:00을 종료 경계로 사용합니다.")
             Instant dueAt,
-            @Schema(description = "최종 선택된 예상 작업 소요시간(분). 타이머 등에는 이 값을 사용합니다.")
-            int estimatedDurationMinutes) { }
+            @Schema(description = "최종 적용 예상 작업 소요시간(분). 미설정이면 null입니다.", nullable = true)
+            Integer estimatedDurationMinutes) { }
 }
 

@@ -103,12 +103,17 @@ public class ReportService {
                 PageRequest.of(query.page(),query.size(),Sort.by(Sort.Direction.DESC,"completedAt","id")));
         var actual=actuals(id,page.getContent());
         var items=page.getContent().stream().map(t -> {
-            long seconds=actual.getOrDefault(t.getId(),0L);
+            // 집계 행이 없으면 타이머로 실제 0초를 기록한 경우와 구분한다.
+            Long measured = actual.get(t.getId());
             return new TimeComparisonPageResponse.TimeComparisonItem(t.getId(),t.getTitle(),t.getCompletedAt(),t.getUserEstimatedDurationMinutes(),
-                    t.getAiEstimatedDurationMinutes(),t.getSelectedEstimateType(),seconds,seconds-t.getUserEstimatedDurationMinutes()*60L,
-                    t.getAiEstimatedDurationMinutes()==null?null:seconds-t.getAiEstimatedDurationMinutes()*60L);
+                    t.getAiEstimatedDurationMinutes(),t.getSelectedEstimateType(),measured == null ? 0L : measured,
+                    comparisonError(measured, t.getUserEstimatedDurationMinutes()),
+                    comparisonError(measured, t.getAiEstimatedDurationMinutes()));
         }).toList();
         return new TimeComparisonPageResponse(query.from(),query.to(),items,page.getNumber(),page.getSize(),page.getTotalElements(),page.getTotalPages(),page.hasNext(),now);
+    }
+    private Long comparisonError(Long measured, Integer estimatedMinutes) {
+        return measured == null || estimatedMinutes == null ? null : measured - estimatedMinutes * 60L;
     }
     private DailyReportResponse dailyAt(Long id,LocalDate date,Instant now) {
         var state=coverage(id,date,now);

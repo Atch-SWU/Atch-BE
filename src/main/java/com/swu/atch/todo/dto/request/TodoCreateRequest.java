@@ -33,11 +33,10 @@ public record TodoCreateRequest(
         @NotNull(message = "하루종일 여부는 필수입니다.")
         @Schema(description = "하루종일 일정 여부. true이면 시작·마감 날짜를 같은 날로 지정하고 두 시각은 null로 보냅니다. 서버가 해당 서울 날짜 하루로 처리합니다.", example = "false", requiredMode = Schema.RequiredMode.REQUIRED)
         Boolean allDay,
-        @NotNull(message = "사용자 예상시간은 필수입니다.")
         @Positive(message = "사용자 예상시간은 0보다 커야 합니다.")
-        @Schema(description = "사용자가 직접 입력한 예상 작업 소요시간(분). 0보다 큰 정수입니다. AI 제안시간으로 덮어쓰지 않습니다.", example = "30", requiredMode = Schema.RequiredMode.REQUIRED)
+        @Schema(description = "사용자가 입력하는 예상 작업 소요시간(분). 생략하거나 null이면 예상시간 없이 생성합니다. 입력 시 양의 정수이며 AI 제안시간과 구별합니다.", example = "30", nullable = true)
         Integer userEstimatedDurationMinutes,
-        @Schema(description = "예상시간 선택 정보(선택). 생략하면 직접 입력시간(USER)을 사용합니다. AI 초안을 연결해 저장하거나 제안을 수락·거절할 때 draftId와 선택 정보를 보냅니다.")
+        @Schema(description = "예상시간 선택 정보(선택). 생략하면 입력한 시간만 적용합니다. 예상시간이 없을 때는 AI 선택과 제안 토큰을 보낼 수 없습니다.")
         @jakarta.validation.Valid EstimateChoiceRequest estimateChoice,
         @Schema(description = "중복 저장 방지용 UUID. estimateChoice를 보내면 필수이며 프론트가 한 저장 동작당 생성합니다. 같은 본문 재전송에는 같은 UUID를 유지합니다. 일반 생성에서 단독으로 보내도 중복 방지를 적용하지 않습니다.")
         java.util.UUID creationRequestId
