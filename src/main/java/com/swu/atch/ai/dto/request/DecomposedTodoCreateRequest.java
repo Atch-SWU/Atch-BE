@@ -17,7 +17,8 @@ public record DecomposedTodoCreateRequest(
         @NotNull @Schema(description = "중복 저장 방지용 요청 UUID. 프론트가 한 번의 저장 동작에 대해 생성합니다. 응답 유실 후 같은 본문으로 재전송할 때 같은 값을 유지합니다.", requiredMode = Schema.RequiredMode.REQUIRED) UUID creationRequestId,
         @NotNull @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "분해한 원본 작업의 초안 UUID. 분해 응답에서 받은 값을 그대로 보냅니다. 저장된 부모 투두 ID가 아닙니다.") UUID decompositionDraftId,
         @NotBlank @Size(max = 200) @Schema(description = "원본 태스크명(필수). 분해 전 원본 작업 이름이며 생성되는 세부 투두에 함께 저장합니다(최대 200자).", example = "기획안 초안 작성", requiredMode = Schema.RequiredMode.REQUIRED) String sourceTaskName,
-        @Schema(description = "메모(선택). 작업에 참고할 내용을 입력합니다(최대 2000자).")
+        @Schema(description = "하단의 ‘메모’(선택, 최대 2000자). 요청 본문 최상위에 한 번 보내면 최종 승인한 모든 세부 투두에 같은 메모가 저장됩니다.",
+                example = "문제 정의와 해결 방향을 꼭 포함해 주세요.")
         @Size(max = 2000) String memo,
         @NotNull @Schema(example = "2026-10-29", requiredMode = Schema.RequiredMode.REQUIRED, description = "시작 날짜. 서울 기준 YYYY-MM-DD 형식입니다. 신규 생성은 오늘 이후 날짜를 입력합니다.") LocalDate startDate,
         @Schema(example = "18:00:00", type = "string", format = "time", description = "시작 시각. 서울 기준 HH:mm:ss 형식입니다. allDay=false이면 필수이며 true이면 null을 보냅니다.") LocalTime startTime,

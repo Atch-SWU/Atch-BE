@@ -40,8 +40,13 @@ public class TaskDecompositionController {
     @Operation(summary = "[프론트] AI 세부 분량 나누기 — 작업 제안", description = """
             ### 호출 순서
             1. 새 작업의 `draftId`를 발급받습니다.
-            2. 태스크명·일정과 선택 입력인 작업 내용·메모를 보냅니다. `memo`에는 AI가 분해할 때 참고할 조건이나 꼭 포함할 일을 적을 수 있습니다.
+            2. 태스크명과 일정을 보냅니다. 작업 내용과 메모가 있으면 아래 안내에 따라 보냅니다.
             3. 응답의 세부 작업 이름·순서를 화면에 표시합니다. 새 제안은 1~5개이며, 이 단계에서는 투두가 저장되지 않습니다.
+
+            ### 화면의 작업 내용과 메모
+
+            - 상단의 ‘작업 내용’은 `taskDescription`에 보냅니다. AI가 태스크의 목적과 범위를 이해하는 데 사용하는 선택 입력입니다.
+            - 하단의 ‘메모’를 이미 입력했다면 `memo`에 함께 보내 AI가 분해할 때 참고하게 할 수 있습니다. 메모를 분해 후에 작성했다면 최종 저장 요청의 `memo`에 보냅니다.
 
             ### 편집 후 다음 단계
 
@@ -53,7 +58,6 @@ public class TaskDecompositionController {
             ### 제한·실패
             원본 초안별 성공은 1회입니다. 동일 요청은 단계 수와 항목 ID를 포함한 보존 결과를 반환하며, 이전 결과는 5개를 넘을 수 있습니다.
             같은 초안에 다른 입력을 보내면 409입니다. 실패하면 재시도하거나 일반 투두를 만들 수 있습니다.
-            `taskDescription`은 선택 입력이며, 작업의 목적이나 범위를 한 줄로 설명합니다.
             """)
     @ApiResponse(responseCode = "200", description = "세부 작업 이름·순서 제안", content = @Content(schema = @Schema(implementation = TaskDecompositionResponse.class)))
     @ApiResponse(responseCode = "409", description = "AI 호출 진행 중·이미 성공한 작업의 다른 입력·만료 또는 입력이 다른 제안", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -64,7 +68,19 @@ public class TaskDecompositionController {
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = TaskDecompositionRequest.class),
-                            examples = @ExampleObject(name = "요청 예시", value = "{\"draftId\":\"11111111-1111-4111-8111-111111111111\",\"title\":\"기획안 초안 작성\",\"taskDescription\":\"발표 자료로 사용할 기획안 작성\",\"startDate\":\"2026-10-29\",\"startTime\":\"18:00:00\",\"dueDate\":\"2026-10-29\",\"dueTime\":\"20:00:00\",\"allDay\":false,\"memo\":\"문제 정의와 해결 방향을 꼭 포함해 주세요.\"}")))
+                            examples = @ExampleObject(name = "요청 예시", value = """
+                                    {
+                                      "draftId": "11111111-1111-4111-8111-111111111111",
+                                      "title": "기획안 초안 작성",
+                                      "taskDescription": "발표 자료로 사용할 기획안 작성",
+                                      "startDate": "2026-10-29",
+                                      "startTime": "18:00:00",
+                                      "dueDate": "2026-10-29",
+                                      "dueTime": "20:00:00",
+                                      "allDay": false,
+                                      "memo": "문제 정의와 해결 방향을 꼭 포함해 주세요."
+                                    }
+                                    """)))
             @Valid @RequestBody TaskDecompositionRequest request
     ) {
         return decompositions.decompose(id(jwt), stamp(jwt), request);
@@ -79,7 +95,9 @@ public class TaskDecompositionController {
 
             - 새로 저장할 때는 직접 추가한 항목을 포함해 확정한 1~10개를 `tasks`에 보냅니다. 원본 부모 투두는 생성하지 않습니다.
             - 새로 저장할 세부 작업이 10개를 초과하면 400 `INVALID_REQUEST`를 반환합니다.
-            - 원본 태스크명·공통 일정·메모를 각 투두에 복사합니다.
+            - 원본 태스크명과 공통 일정을 각 투두에 복사합니다.
+            - 하단의 ‘메모’는 요청 본문 최상위의 `memo`에 한 번 보냅니다. 서버가 직접 추가한 항목을 포함해 최종 승인한 모든 세부 투두에 같은 메모를 저장합니다.
+            - 분해 후에 작성한 메모도 저장할 수 있습니다. 묶음 시간 예측에서 받은 `predictionToken`을 함께 보낼 경우, 예측 요청에 보낸 것과 같은 `memo`를 사용합니다.
             - `estimateChoice` 생략 또는 USER 선택은 직접 입력시간, AI 선택은 서버 제안시간을 사용합니다. 직접 입력한 원본 시간은 따로 보존합니다.
             - 묶음의 선택은 예상시간이 있는 항목에만 적용합니다. 미입력은 생략하거나 null로 보내고, 제안 토큰에는 그 항목을 포함하지 않습니다.
             - `estimateChoice.draftId`는 원본 `decompositionDraftId`를 사용합니다. 합계는 예상시간이 있는 항목만 포함하며 해당 값이 하나도 없으면 null입니다.
@@ -96,7 +114,35 @@ public class TaskDecompositionController {
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = DecomposedTodoCreateRequest.class),
-                            examples = @ExampleObject(name = "요청 예시", value = "{\"creationRequestId\":\"33333333-3333-4333-8333-333333333333\",\"decompositionDraftId\":\"11111111-1111-4111-8111-111111111111\",\"sourceTaskName\":\"기획안 초안 작성\",\"memo\":null,\"startDate\":\"2026-10-29\",\"startTime\":\"18:00:00\",\"dueDate\":\"2026-10-29\",\"dueTime\":\"20:00:00\",\"allDay\":false,\"tasks\":[{\"draftId\":\"22222222-2222-4222-8222-222222222222\",\"title\":\"핵심 메시지 한 줄 정하기\",\"userEstimatedDurationMinutes\":10},{\"draftId\":\"44444444-4444-4444-8444-444444444444\",\"title\":\"참고 자료 읽기\"}],\"estimateChoice\":{\"draftId\":\"11111111-1111-4111-8111-111111111111\",\"selectedEstimateType\":\"USER\",\"predictionToken\":null}}")))
+                            examples = @ExampleObject(name = "요청 예시", value = """
+                                    {
+                                      "creationRequestId": "33333333-3333-4333-8333-333333333333",
+                                      "decompositionDraftId": "11111111-1111-4111-8111-111111111111",
+                                      "sourceTaskName": "기획안 초안 작성",
+                                      "memo": "문제 정의와 해결 방향을 꼭 포함해 주세요.",
+                                      "startDate": "2026-10-29",
+                                      "startTime": "18:00:00",
+                                      "dueDate": "2026-10-29",
+                                      "dueTime": "20:00:00",
+                                      "allDay": false,
+                                      "tasks": [
+                                        {
+                                          "draftId": "22222222-2222-4222-8222-222222222222",
+                                          "title": "핵심 메시지 한 줄 정하기",
+                                          "userEstimatedDurationMinutes": 10
+                                        },
+                                        {
+                                          "draftId": "44444444-4444-4444-8444-444444444444",
+                                          "title": "참고 자료 읽기"
+                                        }
+                                      ],
+                                      "estimateChoice": {
+                                        "draftId": "11111111-1111-4111-8111-111111111111",
+                                        "selectedEstimateType": "USER",
+                                        "predictionToken": null
+                                      }
+                                    }
+                                    """)))
             @Valid @RequestBody DecomposedTodoCreateRequest request
     ) {
         var result = aiTodos.confirm(id(jwt), stamp(jwt), request);

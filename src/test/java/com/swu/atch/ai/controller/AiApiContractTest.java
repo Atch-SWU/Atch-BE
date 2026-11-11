@@ -232,12 +232,22 @@ class AiApiContractTest extends IsolatedAuthIntegrationTest {
         var schemas = api.path("components").path("schemas");
         var decomposition = schemas.path("TaskDecompositionRequest").path("properties");
         assertThat(decomposition.has("taskDescription")).isTrue();
+        assertThat(decomposition.path("taskDescription").path("description").asText()).contains("상단의 ‘작업 내용’");
         assertThat(decomposition.path("memo").path("description").asText()).contains("꼭 포함할 일");
         var decompose = api.path("paths").path("/api/v1/ai/task-decompositions").path("post");
-        assertThat(decompose.path("description").asText()).contains("1~5개", "이전 결과는 5개를 넘을 수 있습니다");
+        assertThat(decompose.path("description").asText())
+                .contains("1~5개", "이전 결과는 5개를 넘을 수 있습니다", "하단의 ‘메모’", "분해 후에 작성");
+        var batch = api.path("paths").path("/api/v1/ai/time-predictions/batch").path("post");
+        assertThat(batch.path("description").asText()).contains("요청 본문 최상위", "예측 요청과 같은 `memo`");
         var confirm = api.path("paths").path("/api/v1/todos/decomposed").path("post");
         assertThat(confirm.path("description").asText())
-                .contains("1~10개", "10개를 초과하면 400 `INVALID_REQUEST`", "11~20개를 저장한 요청");
+                .contains("1~10개", "10개를 초과하면 400 `INVALID_REQUEST`", "11~20개를 저장한 요청",
+                        "최종 승인한 모든 세부 투두에 같은 메모", "예측 요청에 보낸 것과 같은 `memo`");
+        var memoExample = "/requestBody/content/application~1json/examples/요청 예시/value/memo";
+        var commonMemo = decompose.at(memoExample).asText();
+        assertThat(commonMemo).isNotBlank();
+        assertThat(batch.at(memoExample).asText()).isEqualTo(commonMemo);
+        assertThat(confirm.at(memoExample).asText()).isEqualTo(commonMemo);
         assertThat(confirm.path("responses").has("400")).isTrue();
         assertThat(decomposition.has("workload")).isFalse();
         assertThat(decomposition.has("userEstimatedDurationMinutes")).isFalse();

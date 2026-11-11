@@ -13,7 +13,8 @@ import java.util.UUID;
 public record TimePredictionBatchRequest(
         @NotNull @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "분해한 원본 작업의 초안 UUID. 분해 응답에서 받은 값을 그대로 보냅니다. 저장된 부모 투두 ID가 아닙니다.") UUID decompositionDraftId,
         @NotBlank @Size(max = 200) @Schema(example = "기획안 초안 작성", requiredMode = Schema.RequiredMode.REQUIRED, description = "원본 태스크명(필수). 분해 전 원본 작업 이름을 보냅니다(최대 200자). 최종 저장에도 같은 값을 사용합니다.") String sourceTaskName,
-        @Schema(description = "메모(선택). 작업에 참고할 내용을 입력합니다(최대 2000자).")
+        @Schema(description = "하단의 ‘메모’(선택, 최대 2000자). 이 요청의 predictionToken을 최종 저장에 사용할 때는 같은 메모를 보내야 합니다.",
+                example = "문제 정의와 해결 방향을 꼭 포함해 주세요.")
         @Size(max = 2000) String memo,
         @NotNull @Size(min = 1, max = 20) @Valid
         @Schema(description = "세부 작업 배열(1~20개). 각 작업의 서버 발급 draftId·편집한 태스크명·사용자 직접 입력시간을 담습니다. 순서는 화면에 표시할 순서입니다.", requiredMode = Schema.RequiredMode.REQUIRED)

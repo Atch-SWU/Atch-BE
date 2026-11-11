@@ -105,8 +105,9 @@ public class TimePredictionController {
 
             - `decompositionDraftId`: 원본 분해 초안 ID입니다.
             - `tasks`: 같은 분해 결과에 속한 세부 작업들의 `draftId`·태스크명·직접 입력시간입니다. 중복 ID는 허용하지 않습니다.
+            - `memo`: 하단의 ‘메모’를 입력했다면 요청 본문 최상위에 한 번 보냅니다. 메모를 넣어 저장할 예정이라면 시간 예측 전에 작성합니다.
             - 서버가 각 작업의 시간을 개별 보정하고 합계를 계산합니다. 전체 시간을 일정 비율로 나누지 않습니다.
-            - 최종 저장에서 제안을 수락하거나 보존하려면 이 묶음 `predictionToken`을 보냅니다. 토큰의 항목은 저장 요청에서 예상시간이 있는 항목과 일치해야 합니다.
+            - 최종 저장에 이 보정 결과를 적용하거나 함께 보존하려면 묶음의 `predictionToken`을 보냅니다. 이때 예측 요청과 같은 `memo`를 사용합니다. 토큰의 항목은 저장 요청에서 예상시간이 있는 항목과 일치해야 합니다.
 
             ### 재요청
             각 작업에 성공 1회 제한을 적용합니다. 이미 성공한 작업은 같은 입력이면 재사용하며 실패 항목은 재시도할 수 있습니다. `predictions`의 작업별 상태를 확인합니다.
@@ -118,7 +119,20 @@ public class TimePredictionController {
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = TimePredictionBatchRequest.class),
-                            examples = @ExampleObject(name = "요청 예시", value = "{\"decompositionDraftId\":\"11111111-1111-4111-8111-111111111111\",\"sourceTaskName\":\"기획안 초안 작성\",\"memo\":null,\"tasks\":[{\"draftId\":\"22222222-2222-4222-8222-222222222222\",\"title\":\"핵심 메시지 한 줄 정하기\",\"userEstimatedDurationMinutes\":10}]}")))
+                            examples = @ExampleObject(name = "요청 예시", value = """
+                                    {
+                                      "decompositionDraftId": "11111111-1111-4111-8111-111111111111",
+                                      "sourceTaskName": "기획안 초안 작성",
+                                      "memo": "문제 정의와 해결 방향을 꼭 포함해 주세요.",
+                                      "tasks": [
+                                        {
+                                          "draftId": "22222222-2222-4222-8222-222222222222",
+                                          "title": "핵심 메시지 한 줄 정하기",
+                                          "userEstimatedDurationMinutes": 10
+                                        }
+                                      ]
+                                    }
+                                    """)))
             @Valid @RequestBody TimePredictionBatchRequest request
     ) {
         return predictions.batch(id(jwt), stamp(jwt), request);
