@@ -7,6 +7,8 @@ import com.swu.atch.ai.dto.response.*;
 import java.util.*;
 
 public interface ClaudeGateway {
+    int MAX_DECOMPOSITION_STEPS = 5;
+
     record Context(
             UUID draftId,
             String title,

@@ -21,7 +21,8 @@ public record TaskDecompositionRequest(
         @NotNull @Schema(example = "2026-10-29", requiredMode = Schema.RequiredMode.REQUIRED, description = "마감 날짜. YYYY-MM-DD 형식입니다. 하루종일 일정은 시작 날짜와 같은 날짜를 보냅니다.") LocalDate dueDate,
         @Schema(description = "마감 시각. 서울 기준 HH:mm:ss 형식입니다. allDay=false이면 필수이며 마감 일시는 시작 일시보다 뒤여야 합니다. true이면 null을 보냅니다.", example = "20:00:00", type = "string", format = "time") LocalTime dueTime,
         @NotNull @Schema(example = "false", requiredMode = Schema.RequiredMode.REQUIRED, description = "하루종일 일정 여부. true이면 시작·마감 날짜를 같은 날로 지정하고 두 시각은 null로 보냅니다. 서버가 해당 서울 날짜 하루로 처리합니다.") Boolean allDay,
-        @Schema(description = "메모(선택). 작업에 참고할 내용을 입력합니다(최대 2000자).")
+        @Schema(description = "메모(선택). AI가 작업을 나눌 때 참고할 조건이나 꼭 포함할 일을 적습니다(최대 2000자).",
+                example = "창틀 청소와 침구 세탁은 꼭 포함해 주세요.")
         @Size(max = 2000) String memo
 ) {
 

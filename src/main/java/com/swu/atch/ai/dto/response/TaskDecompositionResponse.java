@@ -12,7 +12,7 @@ public record TaskDecompositionResponse(
         UUID decompositionDraftId,
         @Schema(description = "AI 세부 분량 나누기 전 원본 태스크명. 일반 투두는 null일 수 있습니다.")
         String sourceTaskName,
-        @Schema(description = "AI가 제안한 세부 작업 목록. 사용자는 태스크명·순서를 편집하고 항목을 추가·삭제할 수 있습니다.")
+        @Schema(description = "AI가 새로 제안하는 세부 작업 목록(1~5개). 태스크명과 순서를 편집하거나 항목을 추가·삭제할 수 있습니다. 이전 성공 결과를 다시 받는 경우 기존 단계 수와 ID를 반환합니다.")
         List<Step> steps,
         @Schema(description = "이 작업의 AI 기능 사용 상태·재시도 가능 여부입니다.")
         AiUsageResponse usage,

@@ -232,6 +232,13 @@ class AiApiContractTest extends IsolatedAuthIntegrationTest {
         var schemas = api.path("components").path("schemas");
         var decomposition = schemas.path("TaskDecompositionRequest").path("properties");
         assertThat(decomposition.has("taskDescription")).isTrue();
+        assertThat(decomposition.path("memo").path("description").asText()).contains("꼭 포함할 일");
+        var decompose = api.path("paths").path("/api/v1/ai/task-decompositions").path("post");
+        assertThat(decompose.path("description").asText()).contains("1~5개", "이전 결과는 5개를 넘을 수 있습니다");
+        var confirm = api.path("paths").path("/api/v1/todos/decomposed").path("post");
+        assertThat(confirm.path("description").asText())
+                .contains("1~10개", "10개를 초과하면 400 `INVALID_REQUEST`", "11~20개를 저장한 요청");
+        assertThat(confirm.path("responses").has("400")).isTrue();
         assertThat(decomposition.has("workload")).isFalse();
         assertThat(decomposition.has("userEstimatedDurationMinutes")).isFalse();
         assertThat(schemas.path("TimePredictionRequest").path("required").toString())

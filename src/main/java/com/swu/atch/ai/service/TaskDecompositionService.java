@@ -79,7 +79,7 @@ public class TaskDecompositionService {
             var titles = claude.decompose(normalized);
             if (titles == null
                     || titles.isEmpty()
-                    || titles.size() > 20
+                    || titles.size() > ClaudeGateway.MAX_DECOMPOSITION_STEPS
                     || titles.stream().anyMatch(t -> t == null || t.isBlank() || t.length() > 200))
                 throw new AiProviderException(TimePredictionResult.ClaudeStatus.INVALID_RESPONSE);
             return tx.locked(
