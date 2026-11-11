@@ -24,6 +24,8 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class AiTodoService {
+    private static final int MAX_NEW_DECOMPOSED_TODOS = 10;
+
     private final AiTransactions tx;
     private final AiDraftService drafts;
     private final AiCreationRequestRepository creations;
@@ -163,6 +165,8 @@ public class AiTodoService {
                                 old.selectedEstimateType(),
                                 true);
                     }
+                    // 이미 성공한 요청은 기존 응답을 반환하고, 새 저장에만 상한을 적용한다.
+                    if (input.tasks().size() > MAX_NEW_DECOMPOSED_TODOS) throw bad();
                     var root = drafts.owned(input.decompositionDraftId(), user);
                     requireNew(root);
                     if (root.getParent() != null) throw conflict();

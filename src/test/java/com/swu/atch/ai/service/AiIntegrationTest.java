@@ -502,6 +502,119 @@ class AiIntegrationTest extends IsolatedAuthIntegrationTest {
     }
 
     @Test
+    void oversizedDecompositionDoesNotCreateChildrenAndCanBeRetried() {
+        var a = actor();
+        var id = draft(a);
+        var request = decomposition(id);
+        var titles = List.of("자료 모으기", "자료 정리하기", "초안 쓰기", "초안 검토하기", "제출하기", "추가 작업");
+        when(claude.decompose(any())).thenReturn(titles).thenReturn(titles.subList(0, 5));
+
+        code(() -> decompositions.decompose(a.id, a.stamp, request), ErrorCode.AI_DECOMPOSITION_FAILED);
+        var parent = drafts.owned(id, a.id);
+        assertThat(drafts.response(parent, Instant.now()).decompositionUsage().retryAllowed()).isTrue();
+        assertThat(jdbc.queryForObject(
+                "select count(*) from ai_drafts where parent_id=?", Long.class, parent.getId())).isZero();
+        verify(claude, times(1)).decompose(any());
+
+        var result = decompositions.decompose(a.id, a.stamp, request);
+        assertThat(result.steps()).extracting(TaskDecompositionResponse.Step::title)
+                .containsExactlyElementsOf(titles.subList(0, 5));
+        var replay = decompositions.decompose(a.id, a.stamp, request);
+        assertThat(replay.cached()).isTrue();
+        assertThat(replay.steps()).isEqualTo(result.steps());
+        verify(claude, times(2)).decompose(any());
+    }
+
+    @Test
+    void finalSaveAllowsTenIncludingManualChildrenAndRejectsElevenAtomically() throws Exception {
+        var a = actor();
+        when(claude.decompose(any()))
+                .thenReturn(List.of("자료 모으기", "자료 정리하기", "초안 쓰기", "초안 검토하기", "제출하기"));
+        var d = decompositions.decompose(a.id, a.stamp, decomposition(draft(a)));
+        var items = new ArrayList<>(tasks(d));
+        for (int i = 6; i <= 11; i++) {
+            var child = drafts.issue(a.id, a.stamp, new AiDraftRequest(null, d.decompositionDraftId()));
+            items.add(new DecomposedTaskInput(child.draftId(), "직접 추가한 작업 " + i, null));
+        }
+
+        var requestId = UUID.randomUUID();
+        var oversized = confirmInput(d, requestId, null, SelectedEstimateType.USER, items);
+        var error = postDecomposed(a, oversized);
+        assertThat(error.getStatus()).isEqualTo(400);
+        assertThat(json.read(error.getContentAsString(), ErrorResponse.class).code())
+                .isEqualTo("INVALID_REQUEST");
+        assertThat(jdbc.queryForObject(
+                "select count(*) from todos where user_id=?", Long.class, a.id)).isZero();
+
+        var approved = confirmInput(d, requestId, null, SelectedEstimateType.USER, items.subList(0, 10));
+        var created = postDecomposed(a, approved);
+        assertThat(created.getStatus()).isEqualTo(201);
+        var result = json.read(created.getContentAsString(), DecomposedTodoCreateResponse.class);
+        assertThat(result.items()).extracting(DecomposedTodoCreateResponse.CreatedTodo::draftId)
+                .containsExactlyElementsOf(items.subList(0, 10).stream().map(DecomposedTaskInput::draftId).toList());
+    }
+
+    @Test
+    void replaysLegacyDecompositionAndFinalSaveWithElevenItems() throws Exception {
+        var a = actor();
+        var id = draft(a);
+        var request = decomposition(id);
+        var d = decompositions.decompose(a.id, a.stamp, request);
+        var parent = drafts.owned(id, a.id);
+        var steps = new ArrayList<>(d.steps());
+        for (int i = 3; i <= 11; i++) {
+            var child = drafts.issue(a.id, a.stamp, new AiDraftRequest(null, id));
+            steps.add(new TaskDecompositionResponse.Step(child.draftId(), i, "기존 작업 " + i));
+        }
+        var legacy = new TaskDecompositionResponse(
+                id, d.sourceTaskName(), steps, d.usage(), false, d.expiresAt());
+        jdbc.update("update ai_operations set result_payload=cast(? as jsonb) where draft_id=? and feature=?",
+                json.write(legacy), parent.getId(), AiFeature.DECOMPOSITION.name());
+
+        var replayedDecomposition = decompositions.decompose(a.id, a.stamp, request);
+        assertThat(replayedDecomposition.cached()).isTrue();
+        assertThat(replayedDecomposition.steps()).containsExactlyElementsOf(steps);
+        verify(claude, times(1)).decompose(any());
+
+        var input = confirmInput(legacy, UUID.randomUUID(), null, SelectedEstimateType.USER, tasks(legacy));
+        var savedItems = steps.stream().map(step -> {
+            var todo = todoService.create(a.id, a.stamp, new TodoCreateRequest(
+                    step.title(), null, input.startDate(), input.startTime(), input.dueDate(),
+                    input.dueTime(), false, 10, null, null));
+            return new DecomposedTodoCreateResponse.CreatedTodo(step.draftId(), todo);
+        }).toList();
+        var legacySaved = new DecomposedTodoCreateResponse(
+                input.creationRequestId(), savedItems, 110L, null, SelectedEstimateType.USER, false);
+        // 배포 전에 저장된 요청의 해시와 결과를 재현한다.
+        var legacyHash = json.hash(Arrays.asList(
+                "DECOMPOSED", id, input.sourceTaskName(), input.memo(), input.startDate(), input.startTime(),
+                input.dueDate(), input.dueTime(), input.allDay(),
+                input.tasks().stream().map(t -> List.of(t.draftId(), t.title(), t.userEstimatedDurationMinutes())).toList(),
+                List.of(id, SelectedEstimateType.USER, "")));
+        jdbc.update("""
+                insert into ai_creation_requests(user_id, draft_id, creation_request_id, request_hash, result_payload)
+                values (?, ?, ?, ?, cast(? as jsonb))
+                """, a.id, parent.getId(), input.creationRequestId(), legacyHash, json.write(legacySaved));
+
+        var response = postDecomposed(a, input);
+        assertThat(response.getStatus()).isEqualTo(200);
+        var result = json.read(response.getContentAsString(), DecomposedTodoCreateResponse.class);
+        assertThat(result.replayed()).isTrue();
+        assertThat(result.items()).containsExactlyElementsOf(savedItems);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from todos where user_id=?", Long.class, a.id)).isEqualTo(11);
+    }
+
+    private org.springframework.mock.web.MockHttpServletResponse postDecomposed(
+            Actor a, DecomposedTodoCreateRequest input) throws Exception {
+        return mvc.perform(post("/api/v1/todos/decomposed")
+                        .header("Authorization", "Bearer " + a.access)
+                        .contentType("application/json")
+                        .content(json.write(input)))
+                .andReturn().getResponse();
+    }
+
+    @Test
     void batchRetriesOnlyFailedItemsAndRetainsOldAsOf() {
         var a = actor();
         var d = decompositions.decompose(a.id, a.stamp, decomposition(draft(a)));

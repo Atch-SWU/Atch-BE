@@ -11,6 +11,9 @@ import com.swu.atch.ai.dto.response.TimePredictionResult.ClaudeStatus;
 import com.swu.atch.ai.service.AiJson;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 import tools.jackson.databind.json.JsonMapper;
@@ -104,19 +107,38 @@ class StructuredClaudeGatewayTest {
     @Test
     void decompositionOnlyReturnsNames() {
         respond("{\"titles\":[\"자료 수집\",\"초안 작성\"]}", StopReason.END_TURN);
-        assertThat(
-                        gateway.decompose(
-                                new TaskDecompositionRequest(
-                                        id,
-                                        "기획",
-                                        null,
-                                        LocalDate.of(2026, 10, 29),
-                                        null,
-                                        LocalDate.of(2026, 10, 29),
-                                        null,
-                                        true,
-                                        null)))
+        assertThat(gateway.decompose(decompositionRequest()))
                 .containsExactly("자료 수집", "초안 작성");
+        var request = ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(client.messages()).create(request.capture());
+        assertThat(request.getValue().messages().getFirst().content().asString())
+                .contains("최대 5개", "같은 공간에서 이어서 하거나 같은 결과를 만드는 행동",
+                        "memo가 있으면", "\"memo\":\"검토 의견을 꼭 반영해 주세요.\"");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 5})
+    void decompositionAcceptsTitlesAtBothLimits(int size) {
+        var titles = List.of("자료 모으기", "자료 정리하기", "초안 쓰기", "초안 검토하기", "제출하기")
+                .subList(0, size);
+        respond(json.writeValueAsString(Map.of("titles", titles)), StopReason.END_TURN);
+        assertThat(gateway.decompose(decompositionRequest())).containsExactlyElementsOf(titles);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 6})
+    void decompositionRejectsOutOfRangeTitles(int size) {
+        respond(json.writeValueAsString(Map.of("titles", Collections.nCopies(size, "작업"))),
+                StopReason.END_TURN);
+        assertThatThrownBy(() -> gateway.decompose(decompositionRequest()))
+                .isInstanceOfSatisfying(AiProviderException.class,
+                        e -> assertThat(e.status()).isEqualTo(ClaudeStatus.INVALID_RESPONSE));
+    }
+
+    private TaskDecompositionRequest decompositionRequest() {
+        var day = LocalDate.of(2026, 10, 29);
+        return new TaskDecompositionRequest(
+                id, "기획", "기획안 작성", day, null, day, null, true, "검토 의견을 꼭 반영해 주세요.");
     }
 
     @Test
