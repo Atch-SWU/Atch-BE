@@ -25,10 +25,10 @@ public record TimerStateResponse(
         @Schema(description = "종료된 Session의 저장 초 합계") long closedDurationSeconds,
         @Schema(description = "서버 시각 기준 현재 열린 구간 경과 초") long currentSessionElapsedSeconds,
         @Schema(description = "종료 구간 합계와 실행 중 경과 초의 합") long totalDurationSeconds,
-        @Schema(description = "최종 선택 예상시간에서 총 집중시간을 뺀 남은 시간(초). 최소 0입니다.")
-        long remainingEstimatedSeconds,
-        @Schema(description = "최종 선택 예상시간보다 더 집중한 시간(초). 초과하지 않았으면 0입니다.")
-        long estimateOverrunSeconds,
+        @Schema(description = "최종 적용 예상시간(분). 미설정이면 null입니다. 경과율은 총 집중 초 ÷ (예상 분 × 60) × 100으로 계산합니다.", nullable = true)
+        Integer estimatedDurationMinutes,
+        @Schema(description = "예상시간을 초과한 집중시간(초). 미설정이면 null, 초과하지 않았으면 0입니다.", nullable = true)
+        Long estimateOverrunSeconds,
         @Schema(description = "진행 중인 작업 전환 대기 정보. 대기가 없으면 null입니다.")
         SwitchWait pendingSwitch,
         @Schema(description = "서버 현재 시각(UTC). 타이머·대기시간 표시의 기준으로 사용합니다.")

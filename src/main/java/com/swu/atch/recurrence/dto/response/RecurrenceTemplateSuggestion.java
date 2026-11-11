@@ -16,7 +16,7 @@ public record RecurrenceTemplateSuggestion(
         @Schema(description = "시작부터 마감까지 간격(분). 표현 가능한 정수 범위를 넘으면 null이므로 직접 입력합니다. 하루종일은 1440입니다.")
         Integer defaultDeadlineOffsetMinutes,
 
-        @Schema(description = "최근 근거 Todo의 사용자 예상 작업 소요시간(분)입니다.")
+        @Schema(description = "최근 근거 Todo의 사용자 예상 작업 소요시간(분). 근거에 값이 없으면 null이며 다른 회차에서 채우지 않습니다.", nullable = true)
         Integer defaultUserEstimatedDurationMinutes
 ) {
 }

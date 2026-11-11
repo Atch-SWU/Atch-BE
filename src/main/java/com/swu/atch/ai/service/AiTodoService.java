@@ -81,7 +81,7 @@ public class AiTodoService {
                                     input.dueTime(),
                                     input.allDay());
                     var offers = offers(user, stamp, draft.getDraftId(), input.estimateChoice());
-                    requireOfferCount(offers, 1, input.estimateChoice());
+                    requireOfferCount(offers, input.userEstimatedDurationMinutes() == null ? 0 : 1, input.estimateChoice());
                     var selection =
                             selection(
                                     input.estimateChoice(),
@@ -139,7 +139,7 @@ public class AiTodoService {
                                             input.tasks().stream()
                                                     .map(
                                                             t ->
-                                                                    List.of(
+                                                                    Arrays.asList(
                                                                             t.draftId(),
                                                                             t.title().trim(),
                                                                             t
@@ -185,7 +185,9 @@ public class AiTodoService {
                                     input.dueTime(),
                                     input.allDay());
                     var offers = offers(user, stamp, root.getDraftId(), input.estimateChoice());
-                    requireOfferCount(offers, input.tasks().size(), input.estimateChoice());
+                    int estimatedCount = (int) input.tasks().stream()
+                            .filter(task -> task.userEstimatedDurationMinutes() != null).count();
+                    requireOfferCount(offers, estimatedCount, input.estimateChoice());
                     var seen = new HashSet<UUID>();
                     var children = new ArrayList<AiDraft>();
                     var selections = new ArrayList<Selection>();
@@ -230,21 +232,23 @@ public class AiTodoService {
                         items.add(
                                 new DecomposedTodoCreateResponse.CreatedTodo(
                                         task.draftId(), mapper.toResponse(todo, 0, now)));
-                        userTotal += task.userEstimatedDurationMinutes();
-                        if (choice.aiMinutes() == null) allAi = false;
-                        else aiTotal += choice.aiMinutes();
+                        if (task.userEstimatedDurationMinutes() != null) {
+                            userTotal += task.userEstimatedDurationMinutes();
+                            if (choice.aiMinutes() == null) allAi = false;
+                            else aiTotal += choice.aiMinutes();
+                        }
                     }
                     root.finalizeDraft(now);
                     var type =
-                            input.estimateChoice() == null
+                            estimatedCount == 0 ? null : input.estimateChoice() == null
                                     ? SelectedEstimateType.USER
                                     : input.estimateChoice().selectedEstimateType();
                     var response =
                             new DecomposedTodoCreateResponse(
                                     input.creationRequestId(),
                                     List.copyOf(items),
-                                    userTotal,
-                                    allAi ? aiTotal : null,
+                                    estimatedCount == 0 ? null : userTotal,
+                                    estimatedCount > 0 && allAi ? aiTotal : null,
                                     type,
                                     false);
                     creations.saveAndFlush(
@@ -265,8 +269,8 @@ public class AiTodoService {
         if (draft.getTodo() == null || !draft.getTodo().getId().equals(todo.getId()))
             throw conflict();
         var offers = offers(user, stamp, draft.getDraftId(), input.estimateChoice());
-        requireOfferCount(offers, 1, input.estimateChoice());
-        return selection(
+        requireOfferCount(offers, input.userEstimatedDurationMinutes() == null ? 0 : 1, input.estimateChoice());
+        var selected = selection(
                 input.estimateChoice(),
                 offers.get(draft.getDraftId()),
                 input.title(),
@@ -274,6 +278,7 @@ public class AiTodoService {
                 input.memo(),
                 input.userEstimatedDurationMinutes(),
                 todo);
+        return selected.type() == null ? null : selected;
     }
 
     private Selection selection(
@@ -282,8 +287,13 @@ public class AiTodoService {
             String title,
             String source,
             String memo,
-            int minutes,
+            Integer minutes,
             Todo todo) {
+        // 예측 토큰은 예상시간이 입력된 항목에만 적용한다.
+        if (minutes == null) {
+            if (offer != null) throw invalid();
+            return new Selection(null, null);
+        }
         var type = choice == null ? SelectedEstimateType.USER : choice.selectedEstimateType();
         if (offer == null) {
             if (type == SelectedEstimateType.AI
@@ -296,7 +306,8 @@ public class AiTodoService {
         if (todo != null && !todo.getUpdatedAt().toString().equals(offer.todoVersion())) {
             // 첫 저장이 성공한 동일 PUT의 재전송만 허용한다. 다른 편집을 덮어쓰지 않는다.
             boolean same =
-                    PredictionInputs.hash(
+                    todo.getUserEstimatedDurationMinutes() != null
+                            && PredictionInputs.hash(
                                             json,
                                             todo.getTitle(),
                                             todo.getSourceTaskName(),
@@ -324,6 +335,8 @@ public class AiTodoService {
             Map<UUID, PredictionTokenService.Offer> offers,
             int size,
             EstimateChoiceRequest choice) {
+        if (size == 0 && choice != null && choice.selectedEstimateType() == SelectedEstimateType.AI)
+            throw invalid();
         if (choice != null && choice.predictionToken() != null && offers.size() != size)
             throw invalid();
     }
@@ -361,7 +374,7 @@ public class AiTodoService {
             Instant due,
             java.time.LocalDate date,
             boolean allDay,
-            int minutes,
+            Integer minutes,
             Selection selection) {
         return Todo.builder()
                 .user(user)
@@ -373,7 +386,7 @@ public class AiTodoService {
                 .currentScheduleDate(date)
                 .allDay(allDay)
                 .userEstimatedDurationMinutes(minutes)
-                .userEstimateSource(UserEstimateSource.USER_INPUT)
+                .userEstimateSource(minutes == null ? null : UserEstimateSource.USER_INPUT)
                 .aiEstimatedDurationMinutes(selection.aiMinutes())
                 .selectedEstimateType(selection.type())
                 .build();

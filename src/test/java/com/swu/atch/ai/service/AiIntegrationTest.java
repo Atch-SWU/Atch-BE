@@ -179,7 +179,8 @@ class AiIntegrationTest extends IsolatedAuthIntegrationTest {
                 day(),
                 LocalTime.of(10, 0),
                 false,
-                tasks,
+                tasks.stream().map(t -> new DecomposedTaskSaveInput(
+                        t.draftId(), t.title(), t.userEstimatedDurationMinutes())).toList(),
                 new EstimateChoiceRequest(d.decompositionDraftId(), type, token));
     }
 
@@ -563,6 +564,70 @@ class AiIntegrationTest extends IsolatedAuthIntegrationTest {
                                         SelectedEstimateType.USER,
                                         items)),
                 ErrorCode.RESOURCE_CONFLICT);
+    }
+
+    @Test
+    void savesMixedEstimatesUsingOffersOnlyForEstimatedChildren() {
+        var a = actor();
+        var d = decompositions.decompose(a.id, a.stamp, decomposition(draft(a)));
+        var estimated = tasks(d).getFirst();
+        var other = tasks(d).getLast();
+        var absent = new DecomposedTaskInput(other.draftId(), other.title(), null);
+        var p = predictions.batch(a.id, a.stamp, batchInput(d, List.of(estimated)));
+        var requestId = UUID.randomUUID();
+        var mismatched = confirmInput(d, requestId, p.predictionToken(), SelectedEstimateType.AI,
+                List.of(new DecomposedTaskInput(estimated.draftId(), estimated.title(), null), other));
+        code(() -> aiTodos.confirm(a.id, a.stamp, mismatched), ErrorCode.AI_OFFER_INVALID);
+        assertThat(jdbc.queryForObject("select count(*) from todos where user_id=?", Long.class, a.id)).isZero();
+
+        var input = confirmInput(d, requestId, p.predictionToken(), SelectedEstimateType.AI,
+                List.of(estimated, absent));
+        var saved = aiTodos.confirm(a.id, a.stamp, input);
+        assertThat(saved.totalUserEstimatedDurationMinutes()).isEqualTo(10);
+        assertThat(saved.totalAiEstimatedDurationMinutes()).isEqualTo(12);
+        assertThat(saved.items().getFirst().todo().estimatedDurationMinutes()).isEqualTo(12);
+        var withoutEstimate = saved.items().getLast().todo();
+        assertThat(withoutEstimate.estimatedDurationMinutes()).isNull();
+        assertThat(withoutEstimate.selectedEstimateType()).isNull();
+        assertThat(withoutEstimate.userEstimateSource()).isNull();
+        assertThat(aiTodos.confirm(a.id, a.stamp, input).replayed()).isTrue();
+        verify(claude, times(1)).predict(anyList());
+    }
+
+    @Test
+    void savesAllApprovedChildrenWithoutEstimatingThem() {
+        var a = actor();
+        var d = decompositions.decompose(a.id, a.stamp, decomposition(draft(a)));
+        var absent = tasks(d).stream()
+                .map(t -> new DecomposedTaskInput(t.draftId(), t.title(), null)).toList();
+        var saved = aiTodos.confirm(a.id, a.stamp,
+                confirmInput(d, UUID.randomUUID(), null, SelectedEstimateType.USER, absent));
+        assertThat(saved.items()).hasSize(2).allSatisfy(item -> {
+            assertThat(item.todo().userEstimatedDurationMinutes()).isNull();
+            assertThat(item.todo().aiEstimatedDurationMinutes()).isNull();
+        });
+        assertThat(saved.totalUserEstimatedDurationMinutes()).isNull();
+        assertThat(saved.totalAiEstimatedDurationMinutes()).isNull();
+        assertThat(saved.selectedEstimateType()).isNull();
+        verify(claude, never()).predict(anyList());
+    }
+
+    @Test
+    void clearingEstimateRemovesSelectedProposalWithoutResettingPredictionHistory() {
+        var a = actor();
+        var id = draft(a);
+        var p = predictions.predict(a.id, a.stamp, request(id));
+        var saved = aiTodos.create(a.id, a.stamp,
+                createInput(id, p.predictionToken(), SelectedEstimateType.AI, UUID.randomUUID())).todo();
+        assertThat(saved.estimatedDurationMinutes()).isEqualTo(12);
+
+        var cleared = todoService.update(a.id, a.stamp, saved.id(),
+                new TodoUpdateRequest("기획안", null, day(), LocalTime.of(9, 0), day(), LocalTime.of(10, 0), false, null));
+        assertThat(cleared.userEstimatedDurationMinutes()).isNull();
+        assertThat(cleared.aiEstimatedDurationMinutes()).isNull();
+        assertThat(cleared.selectedEstimateType()).isNull();
+        assertThat(drafts.issue(a.id, a.stamp, new AiDraftRequest(saved.id(), null))
+                .timePredictionUsage().state().name()).isEqualTo("SUCCEEDED");
     }
 
     @Test

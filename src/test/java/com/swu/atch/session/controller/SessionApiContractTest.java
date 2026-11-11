@@ -150,9 +150,12 @@ class SessionApiContractTest extends IsolatedAuthIntegrationTest {
         assertThat(closed.path("durationSeconds").asInt()).isZero();
         assertThat(closed.path("endReason").asText()).isEqualTo("PAUSED");
         var idle = json.readTree(json.writeValueAsString(new TimerStateResponse(TimerStateResponse.State.IDLE,
-                null, null, null, null, null, null, 0, 0, 0, 0, 0, null, start)));
+                null, null, null, null, null, null, 0, 0, 0, null, null, null, start)));
         assertThat(idle.path("state").asText()).isEqualTo("IDLE");
         assertThat(idle.path("sessionId").isNull()).isTrue();
+        assertThat(idle.path("estimatedDurationMinutes").isNull()).isTrue();
+        assertThat(idle.path("estimateOverrunSeconds").isNull()).isTrue();
+        assertThat(idle.has("remainingEstimatedSeconds")).isFalse();
         assertThat(idle.path("serverTime").asText()).isEqualTo("2026-10-28T14:50:00Z");
     }
 

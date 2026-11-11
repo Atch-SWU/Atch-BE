@@ -205,7 +205,8 @@ class AiProviderLiveTest extends IsolatedAuthIntegrationTest {
                             day,
                             request.dueTime(),
                             false,
-                            tasks,
+                            tasks.stream().map(t -> new DecomposedTaskSaveInput(
+                                    t.draftId(), t.title(), t.userEstimatedDurationMinutes())).toList(),
                             new com.swu.atch.todo.dto.request.EstimateChoiceRequest(
                                     root.draftId(),
                                     SelectedEstimateType.AI,

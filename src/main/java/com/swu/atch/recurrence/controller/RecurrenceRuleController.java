@@ -38,6 +38,7 @@ public class RecurrenceRuleController {
     @Operation(summary = "추천을 반복 일정으로 등록", description = """
             ### 입력
             추천의 patternId를 경로에, updatedAt을 expectedUpdatedAt에 복사합니다. 메모·기본 예상시간·마감 간격을 사용자가 확인해 보냅니다. 태스크명·주기·하루종일 여부·요일·시각은 서버가 추천에서 복사합니다.
+            기본 예상시간을 생략하거나 null로 보내면 해당 규칙의 Todo를 예상시간과 통계 보정값 없이 생성합니다.
 
             ### 생성 시점
             등록 시 활성 Rule을 만들고 첫 자동 생성은 다음 서울 날짜 이후 해당 요일부터 시작합니다. 미래 Todo를 미리 만들지 않습니다. 하루종일은 시각 없이 마감 간격 1440분(생략 가능)으로 고정합니다.
@@ -76,6 +77,7 @@ public class RecurrenceRuleController {
     @Operation(summary = "반복 일정 전체 수정", description = """
             ### 입력
             수정 폼 전체와 expectedUpdatedAt을 보냅니다. memo=null은 기존 메모 삭제입니다. DAILY/WEEKLY 주기 자체는 바꿀 수 없습니다.
+            기본 예상시간을 유지하려면 기존 값을 보냅니다. 생략하거나 null이면 이후 회차의 기본 예상시간을 해제합니다.
 
             ### 하루종일·시각 지정
             allDay=true는 scheduledTime=null, 마감 간격은 생략 또는 1440입니다. false는 예정 시각과 양수 마감 간격이 필요합니다. WEEKLY는 요일 필수, DAILY는 요일 null입니다.

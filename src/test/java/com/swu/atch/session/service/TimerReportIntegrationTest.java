@@ -92,6 +92,46 @@ class TimerReportIntegrationTest extends IsolatedAuthIntegrationTest {
         assertThat(body(a,get(path(todo)+"/completion-summary"),null,200).path("resumeCount").asLong()).isEqualTo(1);
     }
 
+    @Test void timerAndComparisonDoNotInventAnEstimateOrARecordedDuration() throws Exception {
+        var a = actor();
+        String form = """
+                {"title":"예상 없이 집중","startDate":"%s","startTime":"09:00",
+                 "dueDate":"%s","dueTime":"10:00","allDay":false}
+                """.formatted(DAY, DAY);
+        long todo = body(a, post("/api/v1/todos"), form, 201).path("id").asLong();
+        long noSession = create(a, "측정 없이 완료", DAY);
+        var running = body(a, post(path(todo) + "/timer/start"), "{}", 200);
+        assertThat(running.path("estimatedDurationMinutes").isNull()).isTrue();
+        assertThat(running.path("estimateOverrunSeconds").isNull()).isTrue();
+        assertThat(running.has("remainingEstimatedSeconds")).isFalse();
+        long sid = running.path("sessionId").asLong();
+        NOW.set(NOON.plusSeconds(20));
+        body(a, post(path(todo) + "/timer/pause"), "{\"sessionId\":" + sid + "}", 200);
+        NOW.set(NOON.plusSeconds(40));
+        assertThat(body(a, get("/api/v1/timer/current"), null, 200)
+                .path("totalDurationSeconds").asLong()).isEqualTo(20);
+        body(a, post(path(todo) + "/complete"), null, 200);
+        body(a, post(path(noSession) + "/complete"), null, 200);
+        var summary = body(a, get(path(todo) + "/completion-summary"), null, 200);
+        assertThat(summary.path("estimateOverrunSeconds").isNull()).isTrue();
+        assertThat(summary.path("todo").path("actualDurationSeconds").asLong()).isEqualTo(20);
+        var comparison = body(a, get("/api/v1/reports/time-comparisons")
+                .param("from", DAY.toString()).param("to", DAY.toString()), null, 200);
+        assertThat(comparison.path("items").size()).isEqualTo(2);
+        for (var item : comparison.path("items")) {
+            assertThat(item.path("userErrorSeconds").isNull()).isTrue();
+            assertThat(item.path("aiErrorSeconds").isNull()).isTrue();
+            if (item.path("todoId").asLong() == todo) {
+                assertThat(item.path("userEstimatedDurationMinutes").isNull()).isTrue();
+                assertThat(item.path("actualDurationSeconds").asLong()).isEqualTo(20);
+            } else {
+                assertThat(item.path("userEstimatedDurationMinutes").asInt()).isEqualTo(30);
+                assertThat(item.path("actualDurationSeconds").asLong()).isZero();
+            }
+        }
+        assertThat(daily(a, DAY).path("completedTodoCount").asLong()).isEqualTo(2);
+    }
+
     @Test void zeroSecondsAndOwnershipAndStaleSessionAreEnforced() throws Exception {
         var a=actor();var other=actor();long todo=create(a,"즉시 정지",DAY);
         var started=body(a,post(path(todo)+"/timer/start"),"{}",200);long sid=started.path("sessionId").asLong();

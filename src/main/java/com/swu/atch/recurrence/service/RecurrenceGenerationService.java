@@ -57,19 +57,24 @@ public class RecurrenceGenerationService {
                     : today.atTime(r.getScheduledTime()).atZone(SEOUL)).toInstant();
             var period = period(r.getFrequency(), today);
             if (start.isBefore(r.getGenerationNotBefore()) || todos.existsByRecurrenceRuleIdAndRecurrencePeriodStartDate(r.getId(), period)) continue;
-            if (factor == null) factor = profiles.fresh(user, now).durationCorrectionFactor();
-            int minutes = r.getDefaultUserEstimatedDurationMinutes();
-            int baseline = ProfileCalculator.minutes(minutes * factor, 1);
+            Integer minutes = r.getDefaultUserEstimatedDurationMinutes();
+            Integer baseline = null;
+            // 기본값이 있는 회차만 통계 보정값을 계산한다.
+            if (minutes != null) {
+                if (factor == null) factor = profiles.fresh(user, now).durationCorrectionFactor();
+                baseline = ProfileCalculator.minutes(minutes * factor, 1);
+            }
             Instant due = r.isAllDay() ? today.plusDays(1).atStartOfDay(SEOUL).toInstant()
                     : start.plusSeconds(r.getDefaultDeadlineOffsetMinutes() * 60L);
             var todo = Todo.builder().user(user).recurrenceRuleId(r.getId()).recurrenceOccurrenceAt(start)
                     .recurrencePeriodStartDate(period).title(r.getTaskName()).memo(r.getMemo()).allDay(r.isAllDay())
                     .startAt(start).dueAt(due).currentScheduleDate(today).userEstimatedDurationMinutes(minutes)
-                    .userEstimateSource(UserEstimateSource.RECURRENCE_TEMPLATE).aiEstimatedDurationMinutes(baseline)
-                    .selectedEstimateType(SelectedEstimateType.USER).build();
+                    .userEstimateSource(minutes == null ? null : UserEstimateSource.RECURRENCE_TEMPLATE)
+                    .aiEstimatedDurationMinutes(baseline)
+                    .selectedEstimateType(minutes == null ? null : SelectedEstimateType.USER).build();
             todos.saveAndFlush(todo);
             // 새 통계 계산을 레거시로 분류하지 않는다. 외부 호출·성공 Operation은 만들지 않는다.
-            drafts.attachGeneratedLocked(user, todo, now);
+            if (baseline != null) drafts.attachGeneratedLocked(user, todo, now);
             created++;
         }
         return created;

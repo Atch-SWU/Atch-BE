@@ -29,7 +29,7 @@ class FlywayMigrationTest {
             .withReuse(false);
 
     @Test
-    void preservesExistingDataWhenUpgradingThroughV11AndDoesNotReapplyMigrations() throws Exception {
+    void preservesExistingDataWhenUpgradingThroughV15AndDoesNotReapplyMigrations() throws Exception {
         var dataSource = new DriverManagerDataSource(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         try (var connection = dataSource.getConnection()) {
@@ -269,7 +269,30 @@ class FlywayMigrationTest {
         var historyV14 = jdbc.queryForList("select * from flyway_schema_history order by installed_rank");
         assertThat(v14.migrate().migrationsExecuted).isZero();
         assertThat(jdbc.queryForList("select * from flyway_schema_history order by installed_rank")).isEqualTo(historyV14);
-        System.out.println("V3->V9->V10->V11->V12->V13->V14: preserved users/auth/settings/todos/patterns/rules; "
+        var beforeV15 = new java.util.LinkedHashMap<String, List<String>>();
+        for (String table : jdbc.queryForList("select tablename from pg_tables where schemaname='public' and tablename<>'flyway_schema_history'", String.class))
+            beforeV15.put(table, jdbc.queryForList("select to_jsonb(t)::text from " + table + " t order by to_jsonb(t)::text", String.class));
+        var v15 = migration(dataSource, "15");
+        assertThat(v15.getConfiguration().getDataSource()).isSameAs(dataSource);
+        assertThat(v15.migrate().migrationsExecuted).isEqualTo(1);
+        v15.validate();
+        assertThat(jdbc.queryForList("select * from flyway_schema_history where version<>'15' order by installed_rank")).isEqualTo(historyV14);
+        for (var entry : beforeV15.entrySet())
+            assertThat(jdbc.queryForList("select to_jsonb(t)::text from " + entry.getKey() + " t order by to_jsonb(t)::text", String.class))
+                    .containsExactlyElementsOf(entry.getValue());
+        assertThat(v15.migrate().migrationsExecuted).isZero();
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () ->
+                jdbc.update("update todos set user_estimated_duration_minutes=null where id=?", todoId));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () ->
+                jdbc.update("update todos set user_estimated_duration_minutes=0 where id=?", todoId));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () ->
+                jdbc.update("update recurrence_rules set default_user_estimated_duration_minutes=0 where id=?", ruleId));
+        assertThat(jdbc.update("""
+                update todos set user_estimated_duration_minutes=null, user_estimate_source=null,
+                    ai_estimated_duration_minutes=null, selected_estimate_type=null where id=?
+                """, todoId)).isEqualTo(1);
+        assertThat(jdbc.update("update recurrence_rules set default_user_estimated_duration_minutes=null where id=?", ruleId)).isEqualTo(1);
+        System.out.println("V3->V9->V10->V11->V12->V13->V14->V15: preserved users/auth/settings/todos/patterns/rules; "
                 + "legacy recurrence guard verified; rerun migrations=0; "
                 + "database=atch_migration_test; container=" + POSTGRES.getContainerId());
     }

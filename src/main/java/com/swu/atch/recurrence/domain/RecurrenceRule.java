@@ -75,10 +75,7 @@ public class RecurrenceRule {
     )
     private Integer defaultDeadlineOffsetMinutes;
 
-    @Column(
-            name = "default_user_estimated_duration_minutes",
-            nullable = false
-    )
+    @Column(name = "default_user_estimated_duration_minutes")
     private Integer defaultUserEstimatedDurationMinutes;
 
     @Column(name = "all_day", nullable = false)
@@ -162,8 +159,8 @@ public class RecurrenceRule {
             );
         }
 
-        if (defaultUserEstimatedDurationMinutes == null
-                || defaultUserEstimatedDurationMinutes <= 0) {
+        if (defaultUserEstimatedDurationMinutes != null
+                && defaultUserEstimatedDurationMinutes <= 0) {
             throw new IllegalArgumentException(
                     "기본 예상 소요시간은 0분보다 커야 합니다."
             );
@@ -190,10 +187,10 @@ public class RecurrenceRule {
     }
 
     public void updateDetails(String name, String memo, DayOfWeek day, LocalTime time,
-            boolean allDay, int offset, int estimate, Instant now) {
+            boolean allDay, int offset, Integer estimate, Instant now) {
         requireActive();
         if (name == null || name.isBlank() || name.trim().length() > 200 || memo != null && memo.length() > 2000
-                || estimate <= 0 || offset <= 0) throw new IllegalArgumentException("규칙 입력이 올바르지 않습니다.");
+                || (estimate != null && estimate <= 0) || offset <= 0) throw new IllegalArgumentException("규칙 입력이 올바르지 않습니다.");
         validateDayOfWeek(frequency, day);
         validateTime(allDay, time, offset);
         taskName = name.trim(); this.memo = memo; dayOfWeek = day; scheduledTime = time;

@@ -26,8 +26,8 @@ public record DecomposedTodoCreateRequest(
         @NotNull @Schema(example = "false", requiredMode = Schema.RequiredMode.REQUIRED, description = "하루종일 일정 여부. true이면 시작·마감 날짜를 같은 날로 지정하고 두 시각은 null로 보냅니다. 서버가 해당 서울 날짜 하루로 처리합니다.") Boolean allDay,
         @NotNull @Size(min = 1, max = 20) @Valid
         @Schema(description = "세부 작업 배열(1~20개). 각 작업의 서버 발급 draftId·편집한 태스크명·사용자 직접 입력시간을 담습니다. 순서는 화면에 표시할 순서입니다.", requiredMode = Schema.RequiredMode.REQUIRED)
-        List<@NotNull DecomposedTaskInput> tasks,
-        @Valid @Schema(description = "묶음 전체의 예상시간 선택(선택). 생략하면 USER입니다. draftId에는 원본 decompositionDraftId를 넣습니다. AI 선택 시 묶음 예측 응답의 predictionToken이 필수입니다.") EstimateChoiceRequest estimateChoice
+        List<@NotNull DecomposedTaskSaveInput> tasks,
+        @Valid @Schema(description = "예상시간을 입력한 항목에 적용할 선택(선택). draftId는 원본 decompositionDraftId입니다. AI 선택 시 예상시간이 있는 항목만 포함한 묶음 제안 토큰이 필요합니다.") EstimateChoiceRequest estimateChoice
 ) {
 
 }

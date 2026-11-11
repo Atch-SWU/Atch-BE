@@ -99,14 +99,14 @@ public class TimePredictionController {
     @PostMapping(value = "/ai/time-predictions/batch", consumes = "application/json", produces = "application/json")
     @Operation(summary = "[프론트] 세부 작업별 AI 시간 보정 제안", description = """
             ### 언제 호출하나요?
-            AI 세부 분량 나누기 결과를 편집하고 각 작업의 예상시간을 직접 입력한 뒤 호출합니다.
+            AI 세부 분량 나누기 결과를 편집한 뒤 예상시간이 있고 보정을 요청할 항목만 보냅니다. 보정할 항목이 없으면 이 API를 건너뜁니다.
 
             ### 입력·응답
 
             - `decompositionDraftId`: 원본 분해 초안 ID입니다.
             - `tasks`: 같은 분해 결과에 속한 세부 작업들의 `draftId`·태스크명·직접 입력시간입니다. 중복 ID는 허용하지 않습니다.
             - 서버가 각 작업의 시간을 개별 보정하고 합계를 계산합니다. 전체 시간을 일정 비율로 나누지 않습니다.
-            - 최종 저장 시 이 응답의 묶음 `predictionToken`을 사용합니다.
+            - 최종 저장에서 제안을 수락하거나 보존하려면 이 묶음 `predictionToken`을 보냅니다. 토큰의 항목은 저장 요청에서 예상시간이 있는 항목과 일치해야 합니다.
 
             ### 재요청
             각 작업에 성공 1회 제한을 적용합니다. 이미 성공한 작업은 같은 입력이면 재사용하며 실패 항목은 재시도할 수 있습니다. `predictions`의 작업별 상태를 확인합니다.

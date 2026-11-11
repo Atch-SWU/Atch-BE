@@ -86,7 +86,7 @@ class TodoApiContractTest extends IsolatedAuthIntegrationTest {
 
     @ParameterizedTest
     @CsvSource({"title,blank", "title,long", "memo,long", "startDate,null", "dueDate,null",
-            "allDay,null", "userEstimatedDurationMinutes,null", "userEstimatedDurationMinutes,zero"})
+            "allDay,null", "userEstimatedDurationMinutes,zero"})
     void createAndUpdateShareRequiredAndScalarValidation(String field, String invalid) throws Exception {
         var body = timedInput();
         Object value = switch (invalid) {
@@ -207,13 +207,17 @@ class TodoApiContractTest extends IsolatedAuthIntegrationTest {
             assertThat(names(properties)).containsExactlyInAnyOrderElementsOf(expectedFields);
             assertThat(properties.path("userId").isMissingNode()).isTrue();
             assertThat(schemas.path(entry.getValue()).path("required").toString())
-                    .contains("title", "startDate", "dueDate", "allDay", "userEstimatedDurationMinutes");
+                    .contains("title", "startDate", "dueDate", "allDay")
+                    .doesNotContain("userEstimatedDurationMinutes");
             var timed = media.path("examples").path("시각 지정").path("value");
             var allDay = media.path("examples").path("하루종일").path("value");
             assertThat(timed.isObject()).isTrue();
             assertThat(timed.path("title").asText()).isNotBlank();
             assertThat(allDay.path("allDay").asBoolean()).isTrue();
             assertThat(allDay.path("startTime").isNull()).isTrue();
+            String optionalExample = entry.getKey().equals("post") ? "예상시간 없이 생성" : "예상시간 해제";
+            assertThat(media.path("examples").path(optionalExample).path("value")
+                    .path("userEstimatedDurationMinutes").isNull()).isTrue();
         }
         for (String route : routes().toList()) {
             String[] parts = route.split(" ", 2);

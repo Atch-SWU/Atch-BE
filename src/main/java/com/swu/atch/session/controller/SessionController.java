@@ -119,6 +119,8 @@ public class SessionController {
             - `state`: IDLE=대상 없음, RUNNING=실행 중, PAUSED=일시정지, SWITCH_WAITING=전환 대기입니다.
             - `focusTodoId`와 `latestSessionId`는 같은 집중 대상의 정보입니다. 다른 투두의 시작·재개 요청에 섞어 보내지 않습니다.
             - `closedDurationSeconds`는 저장된 시간, `currentSessionElapsedSeconds`는 현재 실행 구간의 경과시간입니다.
+            - 예상시간이 있으면 `totalDurationSeconds ÷ (estimatedDurationMinutes × 60) × 100`으로 예상시간 대비 경과율을 계산할 수 있습니다. 작업 완료율과는 별개입니다.
+            - 예상시간이 없으면 `estimatedDurationMinutes`와 `estimateOverrunSeconds`가 null이며 집중시간은 계속 표시합니다.
             - `pendingSwitch`로 대기 중인 전환을 복원하고 `serverTime`을 시간 표시 기준으로 사용합니다.
             - 대상이 없으면 200과 IDLE·null 식별자를 반환합니다. 자정이 지나도 실행 중인 세션은 유지됩니다.
             """)
@@ -218,6 +220,7 @@ public class SessionController {
 
             ### 표시할 내용
             누적 실제 집중시간·일시정지/재개/전환 횟수·마감 초과시간·예상시간 초과분과 다음 작업 후보 최대 3개를 반환합니다. 최초 시작과 완료 취소 뒤 시작은 재개 횟수에 포함하지 않습니다. 완료 취소해도 과거 세션 기록은 지우지 않습니다.
+            예상시간이 없는 작업은 예상시간 초과분을 null로 반환합니다. 다음 작업도 예상시간 없이 포함될 수 있습니다.
             """)
     @ApiResponse(responseCode = "200", description = "완료 결과·다음 작업 후보", content = @Content(schema = @Schema(implementation = TodoCompletionSummaryResponse.class)))
     @ApiResponse(responseCode = "409", description = "상태·기준 Session 충돌 또는 전환 대기 미완료", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
