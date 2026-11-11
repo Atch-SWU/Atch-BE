@@ -78,7 +78,7 @@ public class TaskDecompositionController {
                                       "dueDate": "2026-10-29",
                                       "dueTime": "20:00:00",
                                       "allDay": false,
-                                      "memo": "문제 정의와 해결 방향을 꼭 포함해 주세요."
+                                      "memo": "기확안 작성 시 팀원으로부터 참고자료 확인하기"
                                     }
                                     """)))
             @Valid @RequestBody TaskDecompositionRequest request
@@ -119,7 +119,7 @@ public class TaskDecompositionController {
                                       "creationRequestId": "33333333-3333-4333-8333-333333333333",
                                       "decompositionDraftId": "11111111-1111-4111-8111-111111111111",
                                       "sourceTaskName": "기획안 초안 작성",
-                                      "memo": "문제 정의와 해결 방향을 꼭 포함해 주세요.",
+                                      "memo": "기확안 작성 시 팀원으로부터 참고자료 확인하기",
                                       "startDate": "2026-10-29",
                                       "startTime": "18:00:00",
                                       "dueDate": "2026-10-29",
