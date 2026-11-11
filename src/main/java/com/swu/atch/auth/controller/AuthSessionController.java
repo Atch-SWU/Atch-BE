@@ -7,6 +7,7 @@ import com.swu.atch.auth.service.AuthSessionService;
 import com.swu.atch.common.exception.ErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -54,7 +55,16 @@ public class AuthSessionController {
 
             ### 주의사항 이미 사용한 Refresh Token을 다시 보내면
             재사용으로 감지되어 현재 인증 세션이 폐기될 수 있습니다.
-            """
+            """,
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = RefreshTokenRequest.class),
+                            examples = @ExampleObject(name = "리프레시 토큰으로 갱신", value = """
+                                    {
+                                      "refreshToken": "refreshTokenFromLoginOrRefreshResponse"
+                                    }
+                                    """)))
     )
     @SecurityRequirements
     @ApiResponses({

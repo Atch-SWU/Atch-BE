@@ -1,6 +1,7 @@
 package com.swu.atch.config;
 
 import com.swu.atch.auth.dto.request.LoginRequest;
+import com.swu.atch.auth.dto.request.RefreshTokenRequest;
 import com.swu.atch.auth.dto.request.SignUpRequest;
 import com.swu.atch.support.IsolatedAuthIntegrationTest;
 import jakarta.validation.Validator;
@@ -27,6 +28,23 @@ class AuthOpenApiExamplesTest extends IsolatedAuthIntegrationTest {
     @Autowired private MockMvc mvc;
     @Autowired private JsonMapper json;
     @Autowired private Validator validator;
+
+    @Test
+    void refreshProvidesAJsonObjectExampleMatchingItsRequestDto() throws Exception {
+        String content = mvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        var request = json.readTree(content).path("paths").path("/api/v1/auth/token/refresh")
+                .path("post").path("requestBody");
+        assertThat(request.path("required").asBoolean()).isTrue();
+
+        var media = request.path("content").path("application/json");
+        assertThat(media.path("schema").path("$ref").asText())
+                .isEqualTo("#/components/schemas/RefreshTokenRequest");
+        var example = media.path("examples").path("리프레시 토큰으로 갱신").path("value");
+        assertThat(example.isObject()).isTrue();
+        assertThat(example.path("refreshToken").asText()).isEqualTo("refreshTokenFromLoginOrRefreshResponse");
+        assertThat(validator.validate(json.treeToValue(example, RefreshTokenRequest.class))).isEmpty();
+    }
 
     @Test
     void signupAndLoginProvideUsableExamplesMatchingTheirRealDtos() throws Exception {
