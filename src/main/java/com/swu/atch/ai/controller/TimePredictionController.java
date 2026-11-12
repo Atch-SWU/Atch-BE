@@ -123,7 +123,7 @@ public class TimePredictionController {
                                     {
                                       "decompositionDraftId": "11111111-1111-4111-8111-111111111111",
                                       "sourceTaskName": "기획안 초안 작성",
-                                      "memo": "문제 정의와 해결 방향을 꼭 포함해 주세요.",
+                                      "memo": "기확안 작성 시 팀원으로부터 참고자료 확인하기",
                                       "tasks": [
                                         {
                                           "draftId": "22222222-2222-4222-8222-222222222222",
