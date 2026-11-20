@@ -29,7 +29,7 @@ import java.time.LocalDate;
 @RequestMapping("/api/v1/rewards/settlements")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "bearerAuth")
-@Tag(name = "08. [프론트] 캐릭터 · 보상", description = "보유·장착·현재 수집 상태와 일별 보상 결과입니다. 정산·지급은 서버 내부 처리이며 이미 정산한 날짜는 새 아이템 추가 후에도 다시 지급하지 않습니다.")
+@Tag(name = "08. [프론트] 캐릭터 · 보상", description = "잠금 표시용 카탈로그·보유·장착·현재 수집 상태와 일별 보상 결과입니다. 정산·지급은 서버 내부 처리이며 이미 정산한 날짜는 새 아이템 추가 후에도 다시 지급하지 않습니다.")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "입력 누락·날짜 형식·기간 순서/범위 오류, 오늘·미래 날짜 조회", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "401", description = "JWT 미인증·삭제 계정·이전 비밀번호 상태의 토큰", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),

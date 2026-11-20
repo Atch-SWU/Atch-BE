@@ -6,9 +6,13 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.swu.atch.reward.domain.CharacterItem;
+import com.swu.atch.reward.domain.ItemCategory;
 import com.swu.atch.reward.domain.ItemGrade;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Collection;
 
@@ -20,6 +24,31 @@ public interface CharacterItemRepository
 
     // DB 커밋 결과가 불확실할 때 실제 참조 여부를 확인한 뒤 임시 이미지를 정리한다.
     List<CharacterItem> findAllByAssetKeyIn(Collection<String> assetKeys);
+
+    interface CatalogRow {
+        CharacterItem getItem();
+        boolean getOwned();
+        Instant getAcquiredAt();
+    }
+
+    // 사용자별 보유 관계는 UNIQUE이므로 아이템마다 한 행으로 페이지와 개수를 계산한다.
+    @Query(value = """
+            select item as item, case when owned.id is not null then true else false end as owned,
+                   owned.acquiredAt as acquiredAt
+            from CharacterItem item
+            left join UserCharacterItem owned on owned.characterItem=item and owned.user.id=:userId
+            where (item.active=true or owned.id is not null)
+              and (:category is null or item.category=:category)
+              and (:grade is null or item.grade=:grade)
+            """, countQuery = """
+            select count(item) from CharacterItem item
+            left join UserCharacterItem owned on owned.characterItem=item and owned.user.id=:userId
+            where (item.active=true or owned.id is not null)
+              and (:category is null or item.category=:category)
+              and (:grade is null or item.grade=:grade)
+            """)
+    Page<CatalogRow> findCatalog(@Param("userId") Long userId, @Param("category") ItemCategory category,
+                                @Param("grade") ItemGrade grade, Pageable pageable);
 
     // 특정 등급의 지급 가능한 아이템 목록
     List<CharacterItem> findAllByGradeAndActiveTrueOrderByIdAsc(
