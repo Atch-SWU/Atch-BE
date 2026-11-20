@@ -58,6 +58,8 @@ public class AdminItemController {
             - 같은 itemCode와 같은 이름·등급·카테고리·이미지를 다시 보내면 기존 결과를 반환합니다.
             - 같은 코드를 다른 내용으로 보내면 409입니다. 묶음의 DB 저장은 함께 성공하거나 함께 취소합니다.
             - 이미지 업로드 후 DB 저장을 완료합니다. 장애 후에는 새 코드를 만들지 않고 같은 항목으로 재시도합니다.
+            - 등록 성공 응답의 items[].item.assetUrl에 서버가 생성한 이미지 주소를 반환합니다. 운영진이 URL을 직접 입력하지 않습니다.
+            - 앱은 GET /api/v1/character/items/catalog의 items[].item.assetUrl을 받아 이미지를 표시합니다. 주소를 수동으로 복사하거나 앱에 하드코딩할 필요가 없습니다.
             - /admin/csrf 응답의 token을 X-CSRF-TOKEN 헤더에 넣습니다. 운영진 화면은 이를 자동 처리합니다.
             """)
     @ApiResponse(responseCode = "200", description = "입력 순서의 등록 결과 또는 동일 요청의 기존 결과")

@@ -42,11 +42,28 @@ public class CharacterService {
         });
     }
 
+    public CharacterItemCatalogPageResponse catalog(Long id, String stamp, CharacterItemCatalogQuery query) {
+        RewardPolicy.page(query.page(), query.size());
+        return access.execute(id, stamp, ctx -> {
+            var page = items.findCatalog(id, query.category(), query.grade(),
+                    PageRequest.of(query.page(), query.size(), Sort.by(Sort.Direction.ASC, "id")));
+            var equippedIds = equipped.findAllByUser_IdOrderByCategoryAsc(id).stream()
+                    .map(row -> row.getCharacterItem().getId()).collect(Collectors.toSet());
+            var result = page.getContent().stream().map(row -> new CharacterItemCatalogEntryResponse(
+                    responses.item(row.getItem()), row.getOwned(),
+                    row.getOwned() && equippedIds.contains(row.getItem().getId()), row.getAcquiredAt())).toList();
+            return new CharacterItemCatalogPageResponse(result, page.getNumber(), page.getSize(), page.getTotalElements(),
+                    page.getTotalPages(), page.hasNext(), ctx.now());
+        });
+    }
+
     public CharacterItemResponse item(Long id, String stamp, Long itemId) {
         if (itemId == null || itemId <= 0) throw new BusinessException(ErrorCode.INVALID_REQUEST);
         return access.execute(id, stamp, ctx -> {
-            if (!owned.existsByUser_IdAndCharacterItem_Id(id, itemId)) throw missing();
-            return responses.item(items.findById(itemId).orElseThrow(CharacterService::missing));
+            var item = items.findById(itemId).orElseThrow(CharacterService::missing);
+            // 활성 아이템은 미획득 상태에서도 열람하며, 장착에는 기존 보유 검사를 적용한다.
+            if (!item.isActive() && !owned.existsByUser_IdAndCharacterItem_Id(id, itemId)) throw missing();
+            return responses.item(item);
         });
     }
 

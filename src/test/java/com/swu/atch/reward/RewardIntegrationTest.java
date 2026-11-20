@@ -91,6 +91,12 @@ class RewardIntegrationTest extends IsolatedAuthIntegrationTest {
         current.path("slots").forEach(s -> assertThat(s.path("item").isNull()).isTrue());
         assertThat(current.path("collection").path("allActiveItemsCollected").asBoolean()).isFalse();
         assertThat(call(a, get("/api/v1/character/items"), null, 200).path("items").isEmpty()).isTrue();
+        var catalog = call(a, get("/api/v1/character/items/catalog"), null, 200);
+        assertThat(catalog.path("items").isEmpty()).isTrue();
+        assertThat(catalog.path("totalElements").asLong()).isZero();
+        assertThat(catalog.path("page").asInt()).isZero();
+        assertThat(catalog.path("size").asInt()).isEqualTo(20);
+        assertThat(catalog.path("asOf").asText()).isEqualTo(NOW.toString());
         call(a, get("/api/v1/rewards/settlements/" + DAY.minusDays(1)), null, 404);
         assertThat(settlements.count()).isZero();
     }
@@ -184,6 +190,115 @@ class RewardIntegrationTest extends IsolatedAuthIntegrationTest {
         assertThat(rewards.path("hasNext").asBoolean()).isTrue();
     }
 
+    @Test void catalogShowsLockedItemsAndOnlyTheViewersAcquisitionAndEquipment() throws Exception {
+        var viewer = actor(); var other = actor();
+        var locked = item(ItemGrade.A, ItemCategory.ACCESSORY);
+        var mine = item(ItemGrade.A, ItemCategory.ACCESSORY);
+        var theirs = item(ItemGrade.A, ItemCategory.ACCESSORY);
+        own(viewer, mine); own(other, theirs);
+        equipped.saveAndFlush(UserEquippedItem.equip(users.getReferenceById(viewer.id()), mine, NOW));
+        equipped.saveAndFlush(UserEquippedItem.equip(users.getReferenceById(other.id()), theirs, NOW));
+        var acquiredAt = owned.findAllByUser_IdOrderByAcquiredAtDescIdDesc(viewer.id()).getFirst().getAcquiredAt();
+        em.clear();
+
+        var page = call(viewer, get("/api/v1/character/items/catalog").param("category", "ACCESSORY"), null, 200);
+        assertThat(catalogIds(page)).containsExactly(locked.getId(), mine.getId(), theirs.getId());
+        var entries = new HashMap<Long, JsonNode>();
+        page.path("items").forEach(row -> entries.put(row.path("item").path("id").asLong(), row));
+        assertThat(entries.get(mine.getId()).path("owned").asBoolean()).isTrue();
+        assertThat(entries.get(mine.getId()).path("equipped").asBoolean()).isTrue();
+        assertThat(Instant.parse(entries.get(mine.getId()).path("acquiredAt").asText())).isEqualTo(acquiredAt);
+        for (var id : List.of(locked.getId(), theirs.getId())) {
+            assertThat(entries.get(id).path("owned").asBoolean()).isFalse();
+            assertThat(entries.get(id).path("equipped").asBoolean()).isFalse();
+            assertThat(entries.get(id).path("acquiredAt").isNull()).isTrue();
+        }
+        assertThat(catalogIds(call(viewer, get("/api/v1/character/items"), null, 200))).containsExactly(mine.getId());
+        var otherPage = call(other, get("/api/v1/character/items/catalog").param("category", "ACCESSORY"), null, 200);
+        assertThat(otherPage.path("items").get(1).path("owned").asBoolean()).isFalse();
+        assertThat(otherPage.path("items").get(2).path("owned").asBoolean()).isTrue();
+    }
+
+    @Test void catalogAndDetailIncludeInactiveItemsOnlyForTheirOwner() throws Exception {
+        var viewer = actor(); var other = actor();
+        var activeOwned = item(ItemGrade.B, ItemCategory.COLOR);
+        var activeLocked = item(ItemGrade.B, ItemCategory.COLOR);
+        var inactiveOwned = item(ItemGrade.B, ItemCategory.COLOR);
+        var inactiveTheirs = item(ItemGrade.B, ItemCategory.COLOR);
+        own(viewer, activeOwned); own(viewer, inactiveOwned); own(other, inactiveTheirs);
+        jdbc.update("update character_items set active=false where id in (?,?)", inactiveOwned.getId(), inactiveTheirs.getId());
+        em.clear();
+
+        var page = call(viewer, get("/api/v1/character/items/catalog"), null, 200);
+        assertThat(catalogIds(page)).containsExactly(activeOwned.getId(), activeLocked.getId(), inactiveOwned.getId());
+        for (var id : List.of(activeOwned.getId(), activeLocked.getId(), inactiveOwned.getId())) {
+            call(viewer, get("/api/v1/character/items/" + id), null, 200);
+        }
+        call(viewer, get("/api/v1/character/items/" + inactiveTheirs.getId()), null, 404);
+        assertThat(call(other, get("/api/v1/character/items/" + inactiveTheirs.getId()), null, 200)
+                .path("active").asBoolean()).isFalse();
+        call(viewer, get("/api/v1/character/items/" + Long.MAX_VALUE), null, 404);
+        call(viewer, get("/api/v1/character/items/0"), null, 400);
+        call(viewer, get("/api/v1/character/items/-1"), null, 400);
+        call(viewer, put("/api/v1/character/equipment/COLOR"), Map.of("characterItemId", inactiveOwned.getId()), 200);
+    }
+
+    @Test void catalogFiltersAndCountsTheSameVisibleItemsAcrossPages() throws Exception {
+        var viewer = actor();
+        item(ItemGrade.A, ItemCategory.EYES);
+        var first = item(ItemGrade.A, ItemCategory.ACCESSORY);
+        item(ItemGrade.B, ItemCategory.ACCESSORY);
+        var second = item(ItemGrade.A, ItemCategory.ACCESSORY);
+        var hidden = item(ItemGrade.A, ItemCategory.ACCESSORY);
+        own(viewer, second);
+        jdbc.update("update character_items set active=false where id in (?,?)", second.getId(), hidden.getId());
+        em.clear();
+
+        for (int number = 0; number < 2; number++) {
+            var page = call(viewer, get("/api/v1/character/items/catalog").param("category", "ACCESSORY")
+                    .param("grade", "A").param("size", "1").param("page", Integer.toString(number)), null, 200);
+            assertThat(catalogIds(page)).containsExactly(number == 0 ? first.getId() : second.getId());
+            assertThat(page.path("totalElements").asLong()).isEqualTo(2);
+            assertThat(page.path("totalPages").asInt()).isEqualTo(2);
+            assertThat(page.path("page").asInt()).isEqualTo(number);
+            assertThat(page.path("hasNext").asBoolean()).isEqualTo(number == 0);
+        }
+        var pastEnd = call(viewer, get("/api/v1/character/items/catalog").param("category", "ACCESSORY")
+                .param("grade", "A").param("size", "1").param("page", "9"), null, 200);
+        assertThat(pastEnd.path("items").isEmpty()).isTrue();
+        assertThat(pastEnd.path("totalElements").asLong()).isEqualTo(2);
+        assertThat(pastEnd.path("hasNext").asBoolean()).isFalse();
+        assertThat(call(viewer, get("/api/v1/character/items/catalog").param("grade", "S"), null, 200)
+                .path("items").isEmpty()).isTrue();
+    }
+
+    @Test void readingLockedItemDetailsNeverGrantsOwnershipOrAllowsEquipment() throws Exception {
+        var viewer = actor();
+        var hat = items.saveAndFlush(CharacterItem.builder().name("요리사 모자").grade(ItemGrade.A)
+                .category(ItemCategory.ACCESSORY).assetKey("item/accessory/locked-hat.png").build());
+        var page = call(viewer, get("/api/v1/character/items/catalog"), null, 200);
+        assertThat(page.path("items").get(0).path("owned").asBoolean()).isFalse();
+        var detail = call(viewer, get("/api/v1/character/items/" + hat.getId()), null, 200);
+        assertThat(detail.path("name").asText()).isEqualTo("요리사 모자");
+        assertThat(detail.path("grade").asText()).isEqualTo("A");
+        assertThat(detail.path("assetUrl").asText()).isEqualTo("https://assets.atch.cloud/item/accessory/locked-hat.png");
+        assertThat(detail.has("owned")).isFalse();
+        call(viewer, put("/api/v1/character/equipment/ACCESSORY"), Map.of("characterItemId", hat.getId()), 404);
+        assertThat(owned.existsByUser_IdAndCharacterItem_Id(viewer.id(), hat.getId())).isFalse();
+        assertThat(equipped.findAllByUser_IdOrderByCategoryAsc(viewer.id())).isEmpty();
+        assertThat(grants.count()).isZero();
+    }
+
+    @Test void catalogRejectsInvalidFiltersAndPageBounds() throws Exception {
+        var viewer = actor();
+        for (var value : List.of("0", "-1", "101")) {
+            call(viewer, get("/api/v1/character/items/catalog").param("size", value), null, 400);
+        }
+        call(viewer, get("/api/v1/character/items/catalog").param("page", "-1"), null, 400);
+        call(viewer, get("/api/v1/character/items/catalog").param("category", "UNKNOWN"), null, 400);
+        call(viewer, get("/api/v1/character/items/catalog").param("grade", "X"), null, 400);
+    }
+
     @Test void finalizedResultDoesNotChangeAfterTodoDeletionOrReopen() throws Exception {
         var a = actor(); catalog(); history(a, DAY.minusDays(1), DAY, 1, 1);
         var before = detail(a, DAY.minusDays(1));
@@ -270,8 +385,9 @@ class RewardIntegrationTest extends IsolatedAuthIntegrationTest {
         } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue(); cleanup(a); catalog.forEach(i -> items.deleteById(i.getId())); }
     }
 
-    @Test void authenticationAndOpenApiExposeSevenWorkingContractsWithoutGrantCommands() throws Exception {
+    @Test void authenticationAndOpenApiExposeEightWorkingContractsWithoutGrantCommands() throws Exception {
         assertThat(mvc.perform(get("/api/v1/character")).andReturn().getResponse().getStatus()).isEqualTo(401);
+        assertThat(mvc.perform(get("/api/v1/character/items/catalog")).andReturn().getResponse().getStatus()).isEqualTo(401);
         assertThat(mvc.perform(get("/api/v1/rewards/settlements")).andReturn().getResponse().getStatus()).isEqualTo(401);
         var api = json.readTree(mvc.perform(get("/v3/api-docs")).andReturn().getResponse().getContentAsString());
         int count = 0;
@@ -281,10 +397,20 @@ class RewardIntegrationTest extends IsolatedAuthIntegrationTest {
                 assertThat(operation.getValue().path("security").toString()).contains("bearerAuth");
             }
         }
-        assertThat(count).isEqualTo(7); assertThat(api.path("tags").size()).isEqualTo(9);
+        assertThat(count).isEqualTo(8); assertThat(api.path("tags").size()).isEqualTo(9);
+        var catalog = api.at("/paths/~1api~1v1~1character~1items~1catalog/get");
+        assertThat(catalog.path("description").asText()).contains("owned=false", "미획득", "장착", "비활성");
+        var parameters = catalog.path("parameters").toString();
+        assertThat(parameters).contains("category", "grade", "page", "size").doesNotContain("\"name\":\"jwt\"", "userId");
+        assertThat(api.at("/components/schemas/CharacterItemCatalogEntryResponse/properties").propertyNames())
+                .containsExactlyInAnyOrder("item", "owned", "equipped", "acquiredAt");
+        assertThat(api.at("/paths/~1api~1v1~1character~1items~1{itemId}/get/description").asText())
+                .contains("활성 아이템은 미획득 상태에서도", "장착은 본인이 보유한 아이템만");
         assertThat(api.path("paths").toString()).doesNotContain("/rewards/claim", "/rewards/grant", "/rewards/settle\"");
         var out = java.nio.file.Path.of("build/verification/reward-complete-20261105/openapi.json");
         java.nio.file.Files.createDirectories(out.getParent()); java.nio.file.Files.writeString(out, api.toPrettyString());
+        var catalogOut = java.nio.file.Path.of("build/verification/character-item-catalog-20261120/openapi.json");
+        java.nio.file.Files.createDirectories(catalogOut.getParent()); java.nio.file.Files.writeString(catalogOut, api.toPrettyString());
     }
 
     private Actor actor() {
@@ -318,6 +444,11 @@ class RewardIntegrationTest extends IsolatedAuthIntegrationTest {
         states.flush();
     }
     private JsonNode detail(Actor a, LocalDate date) throws Exception { return call(a, get("/api/v1/rewards/settlements/" + date), null, 200); }
+    private List<Long> catalogIds(JsonNode page) {
+        var ids = new ArrayList<Long>();
+        page.path("items").forEach(row -> ids.add(row.path("item").path("id").asLong()));
+        return ids;
+    }
     private JsonNode results(Actor a, LocalDate from, LocalDate to) throws Exception {
         return call(a, get("/api/v1/rewards/settlements").param("from", from.toString()).param("to", to.toString()), null, 200);
     }

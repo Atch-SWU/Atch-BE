@@ -162,10 +162,11 @@ class ItemAdminIntegrationTest extends IsolatedAuthIntegrationTest {
     void operatorSessionCannotAuthenticateTheJwtApi() throws Exception {
         var session = login(actor(true));
         assertThat(mvc.perform(get("/api/v1/character").session(session)).andReturn().getResponse().getStatus()).isEqualTo(401);
+        assertThat(mvc.perform(get("/api/v1/character/items/catalog").session(session)).andReturn().getResponse().getStatus()).isEqualTo(401);
     }
 
     @Test
-    void itemDetailReturnsGradeAndImageOnlyToTheOwner() throws Exception {
+    void itemDetailReturnsActiveGradeAndImageToAuthenticatedUsers() throws Exception {
         var owner = actor(false);
         var other = actor(false);
         var item = items.saveAndFlush(CharacterItem.builder().name("요리사 모자").grade(ItemGrade.A)
@@ -178,7 +179,7 @@ class ItemAdminIntegrationTest extends IsolatedAuthIntegrationTest {
         assertThat(body.path("grade").asText()).isEqualTo("A");
         assertThat(body.path("assetUrl").asText()).isEqualTo("https://assets.atch.cloud/item/accessory/chef-hat-v1.png");
         assertThat(mvc.perform(get("/api/v1/character/items/" + item.getId()).header("Authorization", bearer(other)))
-                .andReturn().getResponse().getStatus()).isEqualTo(404);
+                .andReturn().getResponse().getStatus()).isEqualTo(200);
         assertThat(mvc.perform(get("/api/v1/character/items/" + item.getId())).andReturn().getResponse().getStatus()).isEqualTo(401);
         var list = json.readTree(mvc.perform(get("/api/v1/character/items").header("Authorization", bearer(owner)))
                 .andReturn().getResponse().getContentAsString());

@@ -3,9 +3,11 @@ package com.swu.atch.reward.controller;
 import com.swu.atch.common.exception.ErrorResponse;
 import com.swu.atch.reward.domain.ItemCategory;
 import com.swu.atch.reward.dto.request.CharacterItemListQuery;
+import com.swu.atch.reward.dto.request.CharacterItemCatalogQuery;
 import com.swu.atch.reward.dto.request.EquipCharacterItemRequest;
 import com.swu.atch.reward.dto.response.CharacterResponse;
 import com.swu.atch.reward.dto.response.CharacterItemResponse;
+import com.swu.atch.reward.dto.response.CharacterItemCatalogPageResponse;
 import com.swu.atch.reward.dto.response.EquippedCharacterSlotResponse;
 import com.swu.atch.reward.dto.response.OwnedCharacterItemPageResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -32,7 +34,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/character")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "bearerAuth")
-@Tag(name = "08. [프론트] 캐릭터 · 보상", description = "보유·장착·현재 수집 상태와 일별 보상 결과입니다. 정산·지급은 서버 내부 처리이며 이미 정산한 날짜는 새 아이템 추가 후에도 다시 지급하지 않습니다.")
+@Tag(name = "08. [프론트] 캐릭터 · 보상", description = "잠금 표시용 카탈로그·보유·장착·현재 수집 상태와 일별 보상 결과입니다. 정산·지급은 서버 내부 처리이며 이미 정산한 날짜는 새 아이템 추가 후에도 다시 지급하지 않습니다.")
 @ApiResponses({
         @ApiResponse(responseCode = "400", description = "입력 누락·형식·범위 오류 또는 슬롯 카테고리 불일치", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "401", description = "JWT 미인증·삭제 계정·이전 비밀번호 상태의 토큰", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
@@ -67,20 +69,42 @@ public class CharacterController {
         return service.items(user(jwt), stamp(jwt), query);
     }
 
+    @GetMapping("/items/catalog")
+    @Operation(summary = "잠금 표시용 카테고리별 아이템 목록", description = """
+            ### 화면 연결
+            1. 카테고리 슬롯을 열면 category를 지정해 이 API를 호출합니다. 예: category=ACCESSORY.
+            2. items[].owned=false인 항목은 잠금 상태로 표시합니다. item.assetUrl로 이미지를 표시합니다.
+            3. 잠긴 항목도 item.id로 GET /api/v1/character/items/{itemId}를 호출해 이름·등급·이미지를 확인할 수 있습니다.
+            4. owned=true인 항목만 장착 버튼을 활성화하고 item.id를 characterItemId로 보냅니다.
+
+            ### 조회 조건
+            - 활성 아이템은 보유 여부와 관계없이 포함합니다. 비활성 아이템은 본인이 보유한 경우에만 포함합니다.
+            - item.active는 신규 지급 가능 여부입니다. 잠금 표시는 owned로 판단합니다.
+            - 미획득 항목은 owned=false, equipped=false, acquiredAt=null입니다. 획득·장착 상태는 본인 기준입니다.
+            - category·grade는 선택 필터입니다. 아이템 ID 오름차순, page=0부터, size 기본 20·최대 100입니다.
+            - 기존 GET /api/v1/character/items는 보유 아이템만 조회하며 기존 응답과 정렬을 유지합니다.
+            """)
+    @ApiResponse(responseCode = "200", description = "아이템 정보와 본인 보유·장착 상태를 포함한 페이지. 결과가 없으면 items는 빈 배열입니다.")
+    public CharacterItemCatalogPageResponse catalog(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @Valid @ModelAttribute @ParameterObject CharacterItemCatalogQuery query) {
+        return service.catalog(user(jwt), stamp(jwt), query);
+    }
+
     @GetMapping("/items/{itemId}")
-    @Operation(summary = "보유 아이템 단건 상세 조회", description = """
-            보유 목록의 item.id 또는 지급 결과의 item.id를 경로 itemId에 넣습니다.
+    @Operation(summary = "잠금 아이템을 포함한 단건 상세 조회", description = """
+            카탈로그·보유 목록 또는 지급 결과의 item.id를 경로 itemId에 넣습니다.
             - 응답은 아이템 한 개의 정보이며 id·name·grade·category·assetKey·assetUrl·active를 반환합니다.
             - grade는 B·A·S 보상 등급입니다. assetUrl이 있으면 HTTPS 이미지로 표시합니다.
             - assetUrl이 null이면 assetKey에 해당하는 앱 내 이미지를 사용하고, 로딩 실패 시 기본 이미지를 표시합니다.
-            - 본인이 보유한 아이템만 조회합니다. 비활성 보유 아이템도 조회할 수 있습니다.
-            - 장착할 때 이 응답의 id를 characterItemId로 보냅니다.
+            - 활성 아이템은 미획득 상태에서도 조회할 수 있습니다. 비활성 아이템은 본인이 보유한 경우에만 조회합니다.
+            - 상세 조회로 보유·장착 상태를 변경하지 않습니다. 장착은 본인이 보유한 아이템만 허용합니다.
+            - 보유한 아이템을 장착할 때 이 응답의 id를 characterItemId로 보냅니다.
             """)
     @ApiResponse(responseCode = "200", description = "보상 등급과 이미지 주소를 포함한 아이템 상세")
-    @ApiResponse(responseCode = "404", description = "없는 아이템 또는 본인이 보유하지 않은 아이템",
+    @ApiResponse(responseCode = "404", description = "없는 아이템 또는 본인이 보유하지 않은 비활성 아이템",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public CharacterItemResponse item(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
-            @Parameter(description = "보유 목록·지급 결과의 item.id입니다.", example = "12") @PathVariable Long itemId) {
+            @Parameter(description = "카탈로그·보유 목록·지급 결과의 item.id입니다. 활성 미획득 아이템도 조회할 수 있습니다.", example = "12") @PathVariable Long itemId) {
         return service.item(user(jwt), stamp(jwt), itemId);
     }
 
