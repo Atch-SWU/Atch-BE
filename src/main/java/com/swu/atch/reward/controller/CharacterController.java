@@ -5,6 +5,7 @@ import com.swu.atch.reward.domain.ItemCategory;
 import com.swu.atch.reward.dto.request.CharacterItemListQuery;
 import com.swu.atch.reward.dto.request.EquipCharacterItemRequest;
 import com.swu.atch.reward.dto.response.CharacterResponse;
+import com.swu.atch.reward.dto.response.CharacterItemResponse;
 import com.swu.atch.reward.dto.response.EquippedCharacterSlotResponse;
 import com.swu.atch.reward.dto.response.OwnedCharacterItemPageResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -64,6 +65,23 @@ public class CharacterController {
     public OwnedCharacterItemPageResponse items(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @Valid @ModelAttribute @ParameterObject CharacterItemListQuery query) {
         return service.items(user(jwt), stamp(jwt), query);
+    }
+
+    @GetMapping("/items/{itemId}")
+    @Operation(summary = "보유 아이템 단건 상세 조회", description = """
+            보유 목록의 item.id 또는 지급 결과의 item.id를 경로 itemId에 넣습니다.
+            - 응답은 아이템 한 개의 정보이며 id·name·grade·category·assetKey·assetUrl·active를 반환합니다.
+            - grade는 B·A·S 보상 등급입니다. assetUrl이 있으면 HTTPS 이미지로 표시합니다.
+            - assetUrl이 null이면 assetKey에 해당하는 앱 내 이미지를 사용하고, 로딩 실패 시 기본 이미지를 표시합니다.
+            - 본인이 보유한 아이템만 조회합니다. 비활성 보유 아이템도 조회할 수 있습니다.
+            - 장착할 때 이 응답의 id를 characterItemId로 보냅니다.
+            """)
+    @ApiResponse(responseCode = "200", description = "보상 등급과 이미지 주소를 포함한 아이템 상세")
+    @ApiResponse(responseCode = "404", description = "없는 아이템 또는 본인이 보유하지 않은 아이템",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    public CharacterItemResponse item(@Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "보유 목록·지급 결과의 item.id입니다.", example = "12") @PathVariable Long itemId) {
+        return service.item(user(jwt), stamp(jwt), itemId);
     }
 
     @PutMapping(value = "/equipment/{category}", consumes = "application/json")

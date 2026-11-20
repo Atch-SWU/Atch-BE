@@ -24,6 +24,7 @@ public class RewardService {
     private final RewardGrantRepository grants;
     private final UserDailySettlementStateRepository states;
     private final TodoSchedulePolicy clock;
+    private final RewardResponses responses;
 
     public RewardSettlementPageResponse list(Long id, String stamp, RewardSettlementListQuery query) {
         RewardPolicy.range(query.from(), query.to(), clock.seoulDate(clock.now()));
@@ -37,7 +38,7 @@ public class RewardService {
                     : grants.findAllByUser_IdAndRewardDateInOrderByRewardDateDescIdAsc(id, dates))
                     .stream().collect(Collectors.groupingBy(RewardGrant::getRewardDate));
             var result = page.getContent().stream()
-                    .map(row -> RewardResponses.settlement(row, byDate.getOrDefault(row.getRewardDate(), List.of()))).toList();
+                    .map(row -> responses.settlement(row, byDate.getOrDefault(row.getRewardDate(), List.of()))).toList();
             return new RewardSettlementPageResponse(query.from(), query.to(), result, page.getNumber(), page.getSize(),
                     page.getTotalElements(), page.getTotalPages(), page.hasNext(), ctx.now());
         });
@@ -52,7 +53,7 @@ public class RewardService {
                 throw new BusinessException(state == null || date.isBefore(state.getTrackingStartedOn())
                         ? ErrorCode.RESOURCE_NOT_FOUND : ErrorCode.REWARD_SETTLEMENT_PENDING);
             });
-            return RewardResponses.settlement(row, grants.findAllByUser_IdAndRewardDateInOrderByRewardDateDescIdAsc(id, List.of(date)));
+            return responses.settlement(row, grants.findAllByUser_IdAndRewardDateInOrderByRewardDateDescIdAsc(id, List.of(date)));
         });
     }
 }

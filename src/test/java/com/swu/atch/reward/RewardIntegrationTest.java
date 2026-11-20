@@ -270,7 +270,7 @@ class RewardIntegrationTest extends IsolatedAuthIntegrationTest {
         } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue(); cleanup(a); catalog.forEach(i -> items.deleteById(i.getId())); }
     }
 
-    @Test void authenticationAndOpenApiExposeSixWorkingContractsWithoutGrantCommands() throws Exception {
+    @Test void authenticationAndOpenApiExposeSevenWorkingContractsWithoutGrantCommands() throws Exception {
         assertThat(mvc.perform(get("/api/v1/character")).andReturn().getResponse().getStatus()).isEqualTo(401);
         assertThat(mvc.perform(get("/api/v1/rewards/settlements")).andReturn().getResponse().getStatus()).isEqualTo(401);
         var api = json.readTree(mvc.perform(get("/v3/api-docs")).andReturn().getResponse().getContentAsString());
@@ -281,7 +281,7 @@ class RewardIntegrationTest extends IsolatedAuthIntegrationTest {
                 assertThat(operation.getValue().path("security").toString()).contains("bearerAuth");
             }
         }
-        assertThat(count).isEqualTo(6); assertThat(api.path("tags").size()).isEqualTo(8);
+        assertThat(count).isEqualTo(7); assertThat(api.path("tags").size()).isEqualTo(9);
         assertThat(api.path("paths").toString()).doesNotContain("/rewards/claim", "/rewards/grant", "/rewards/settle\"");
         var out = java.nio.file.Path.of("build/verification/reward-complete-20261105/openapi.json");
         java.nio.file.Files.createDirectories(out.getParent()); java.nio.file.Files.writeString(out, api.toPrettyString());

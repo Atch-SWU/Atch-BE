@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>아이템 관리 · Atch!</title>
+  <link rel="stylesheet" href="/admin/assets/admin.css">
+  <script src="/admin/assets/admin.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/admin/items">Atch!</a>
+    <form id="logout-form" action="/admin/logout" method="post"><button type="submit" class="text-button" disabled>로그아웃</button></form>
+  </header>
+  <main class="workspace" id="items-page">
+    <h1>아이템 관리</h1>
+    <section class="panel" aria-labelledby="register-heading">
+      <div class="section-heading"><h2 id="register-heading">새 아이템 등록</h2><span id="selection-count"></span></div>
+      <label class="dropzone" id="dropzone" for="image-files">
+        <strong>이미지를 끌어다 놓거나 선택해 주세요</strong>
+        <span>PNG·JPEG · 한 장당 2MB · 최대 4096 × 4096px<br>한 번에 최대 20개, 전체 20MB</span>
+        <input id="image-files" type="file" accept="image/png,image/jpeg" multiple>
+      </label>
+      <form id="registration-form">
+        <div id="upload-rows"></div>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+        <div class="form-actions"><button id="clear-selection" type="button" class="secondary" disabled>선택 비우기</button><button id="register-button" type="submit" class="primary" disabled>일괄 등록</button></div>
+      </form>
+    </section>
+    <section class="panel" aria-labelledby="catalog-heading">
+      <div class="section-heading"><h2 id="catalog-heading">등록된 아이템</h2><button id="refresh-catalog" type="button" class="text-button">새로고침</button></div>
+      <p id="catalog-status" class="status" role="status" aria-live="polite"></p>
+      <div class="catalog" id="catalog"></div>
+      <div class="pagination"><button id="previous-page" type="button" class="secondary" disabled>이전</button><span id="page-label"></span><button id="next-page" type="button" class="secondary" disabled>다음</button></div>
+    </section>
+  </main>
+  <template id="upload-row-template">
+    <article class="upload-row">
+      <img class="preview" alt="선택한 아이템 미리보기">
+      <div class="item-fields">
+        <span class="filename"></span>
+        <label>아이템 이름<input name="name" required maxlength="100" placeholder="앱에 표시할 이름"></label>
+        <div class="field-pair">
+          <label>보상 등급<select name="grade" required><option value="">선택</option><option value="B">B등급</option><option value="A">A등급</option><option value="S">S등급</option></select></label>
+          <label>카테고리<select name="category" required><option value="">선택</option><option value="COLOR">색상</option><option value="BACKGROUND">배경</option><option value="EYES">눈</option><option value="ACCESSORY">액세서리</option></select></label>
+        </div>
+      </div>
+      <button class="remove-row text-button" type="button">제외</button>
+    </article>
+  </template>
+</body>
+</html>

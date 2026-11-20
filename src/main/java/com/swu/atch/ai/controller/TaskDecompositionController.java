@@ -114,7 +114,7 @@ public class TaskDecompositionController {
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = DecomposedTodoCreateRequest.class),
-                            examples = @ExampleObject(name = "요청 예시", value = """
+                            examples = {@ExampleObject(name = "요청 예시", value = """
                                     {
                                       "creationRequestId": "33333333-3333-4333-8333-333333333333",
                                       "decompositionDraftId": "11111111-1111-4111-8111-111111111111",
@@ -142,7 +142,25 @@ public class TaskDecompositionController {
                                         "predictionToken": null
                                       }
                                     }
-                                    """)))
+                                    """), @ExampleObject(name = "예상시간 없이 저장", description = "시간 보정 API를 호출하지 않고 저장합니다. 예상시간과 estimateChoice를 모두 생략합니다.", value = """
+                                    {
+                                      "creationRequestId": "55555555-5555-4555-8555-555555555555",
+                                      "decompositionDraftId": "11111111-1111-4111-8111-111111111111",
+                                      "sourceTaskName": "기획안 초안 작성",
+                                      "memo": "기확안 작성 시 팀원으로부터 참고자료 확인하기",
+                                      "startDate": "2026-10-29",
+                                      "startTime": "18:00:00",
+                                      "dueDate": "2026-10-29",
+                                      "dueTime": "20:00:00",
+                                      "allDay": false,
+                                      "tasks": [
+                                        {
+                                          "draftId": "22222222-2222-4222-8222-222222222222",
+                                          "title": "핵심 메시지 한 줄 정하기"
+                                        }
+                                      ]
+                                    }
+                                    """)}))
             @Valid @RequestBody DecomposedTodoCreateRequest request
     ) {
         var result = aiTodos.confirm(id(jwt), stamp(jwt), request);

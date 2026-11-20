@@ -75,6 +75,13 @@ dependencies {
 
 	implementation 'com.anthropic:anthropic-java:2.73.0'
 
+	// 운영진이 등록한 아이템 이미지를 비공개 S3에 저장
+	implementation('software.amazon.awssdk:s3:2.57.13') {
+		exclude group: 'software.amazon.awssdk', module: 'apache-client'
+		exclude group: 'software.amazon.awssdk', module: 'netty-nio-client'
+	}
+	implementation 'software.amazon.awssdk:url-connection-client:2.57.13'
+
 }
 
 tasks.named('test') {
