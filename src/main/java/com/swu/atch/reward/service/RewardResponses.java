@@ -2,20 +2,25 @@ package com.swu.atch.reward.service;
 
 import com.swu.atch.reward.domain.*;
 import com.swu.atch.reward.dto.response.*;
+import com.swu.atch.reward.asset.CharacterAssetUrls;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.*;
 
 // 조회 완료된 Entity를 확정 DTO로 변환한다. 저장·소유권 조회·정산은 수행하지 않는다.
+@Component
+@RequiredArgsConstructor
 public final class RewardResponses {
-    private RewardResponses() { }
+    private final CharacterAssetUrls assetUrls;
 
-    public static CharacterItemResponse item(CharacterItem item) {
+    public CharacterItemResponse item(CharacterItem item) {
         return new CharacterItemResponse(item.getId(), item.getName(), item.getGrade(), item.getCategory(),
-                item.getAssetKey(), item.isActive());
+                item.getAssetKey(), assetUrls.resolve(item.getAssetKey()), item.isActive());
     }
 
-    public static EquippedCharacterSlotResponse slot(ItemCategory category, UserEquippedItem equipped) {
+    public EquippedCharacterSlotResponse slot(ItemCategory category, UserEquippedItem equipped) {
         if (equipped == null) return new EquippedCharacterSlotResponse(category, null, null, null);
         if (equipped.getCategory() != category || equipped.getCharacterItem().getCategory() != category)
             throw RewardPolicy.conflict();
@@ -23,7 +28,7 @@ public final class RewardResponses {
                 equipped.getEquippedAt(), equipped.getUpdatedAt());
     }
 
-    public static CharacterResponse character(List<UserEquippedItem> equipped, long active, long ownedActive, Instant asOf) {
+    public CharacterResponse character(List<UserEquippedItem> equipped, long active, long ownedActive, Instant asOf) {
         var byCategory = new EnumMap<ItemCategory, UserEquippedItem>(ItemCategory.class);
         for (var row : equipped) {
             if (byCategory.put(row.getCategory(), row) != null) throw RewardPolicy.conflict();
@@ -33,12 +38,12 @@ public final class RewardResponses {
         return new CharacterResponse(slots, collection, asOf);
     }
 
-    public static OwnedCharacterItemResponse owned(UserCharacterItem owned, Set<Long> equippedItemIds) {
+    public OwnedCharacterItemResponse owned(UserCharacterItem owned, Set<Long> equippedItemIds) {
         var item = owned.getCharacterItem();
         return new OwnedCharacterItemResponse(item(item), owned.getAcquiredAt(), equippedItemIds.contains(item.getId()));
     }
 
-    public static RewardSettlementResponse settlement(RewardSettlement settlement, List<RewardGrant> grants) {
+    public RewardSettlementResponse settlement(RewardSettlement settlement, List<RewardGrant> grants) {
         var eligible = RewardPolicy.eligibleGrades(settlement.getAssignedTodoCount(), settlement.getCompletedTodoCount());
         var grades = EnumSet.noneOf(ItemGrade.class);
         var items = new HashSet<Long>();

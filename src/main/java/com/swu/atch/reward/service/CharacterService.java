@@ -19,11 +19,12 @@ public class CharacterService {
     private final CharacterItemRepository items;
     private final UserCharacterItemRepository owned;
     private final UserEquippedItemRepository equipped;
+    private final RewardResponses responses;
 
     public CharacterResponse current(Long id, String stamp) {
         return access.execute(id, stamp, ctx -> {
             var counts = items.collectionCounts(id);
-            return RewardResponses.character(equipped.findAllByUser_IdOrderByCategoryAsc(id),
+            return responses.character(equipped.findAllByUser_IdOrderByCategoryAsc(id),
                     counts.getActiveItemCount(), counts.getOwnedActiveItemCount(), ctx.now());
         });
     }
@@ -35,9 +36,17 @@ public class CharacterService {
                     Sort.by(Sort.Direction.DESC, "acquiredAt", "id")));
             var equippedIds = equipped.findAllByUser_IdOrderByCategoryAsc(id).stream()
                     .map(row -> row.getCharacterItem().getId()).collect(Collectors.toSet());
-            var result = page.getContent().stream().map(row -> RewardResponses.owned(row, equippedIds)).toList();
+            var result = page.getContent().stream().map(row -> responses.owned(row, equippedIds)).toList();
             return new OwnedCharacterItemPageResponse(result, page.getNumber(), page.getSize(), page.getTotalElements(),
                     page.getTotalPages(), page.hasNext(), ctx.now());
+        });
+    }
+
+    public CharacterItemResponse item(Long id, String stamp, Long itemId) {
+        if (itemId == null || itemId <= 0) throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        return access.execute(id, stamp, ctx -> {
+            if (!owned.existsByUser_IdAndCharacterItem_Id(id, itemId)) throw missing();
+            return responses.item(items.findById(itemId).orElseThrow(CharacterService::missing));
         });
     }
 
@@ -52,7 +61,7 @@ public class CharacterService {
             if (row == null) row = equipped.save(UserEquippedItem.equip(ctx.user(), item, ctx.now()));
             else row.replaceItem(item, ctx.now());
             equipped.flush();
-            return RewardResponses.slot(category, row);
+            return responses.slot(category, row);
         });
     }
 

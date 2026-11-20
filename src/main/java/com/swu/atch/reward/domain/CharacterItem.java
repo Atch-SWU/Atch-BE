@@ -43,6 +43,13 @@ public class CharacterItem {
     @Column(name = "asset_key", nullable = false, length = 500)
     private String assetKey;
 
+    // 이전 카탈로그는 null을 유지하고 운영진 등록부터 중복 요청을 식별한다.
+    @Column(name = "item_code", length = 80, unique = true, updatable = false)
+    private String itemCode;
+
+    @Column(name = "asset_sha256", length = 64, updatable = false)
+    private String assetSha256;
+
     // 신규 보상 지급 가능 여부
     @Column(nullable = false)
     private boolean active; // active=false로 변경하는 메서드는 향후 카탈로그 관리 기능을 구현할 때 추가
@@ -85,5 +92,17 @@ public class CharacterItem {
         this.name = name.trim();
         this.assetKey = assetKey.trim();
         this.active = true;
+    }
+
+    public static CharacterItem register(String itemCode, String name, ItemGrade grade,
+            ItemCategory category, String assetKey, String assetSha256) {
+        if (itemCode == null || !itemCode.matches("[a-z0-9][a-z0-9-]{0,79}")
+                || assetSha256 == null || !assetSha256.matches("[a-f0-9]{64}")) {
+            throw new IllegalArgumentException("아이템 등록 코드와 이미지 해시를 확인해주세요.");
+        }
+        var item = new CharacterItem(name, grade, category, assetKey);
+        item.itemCode = itemCode;
+        item.assetSha256 = assetSha256;
+        return item;
     }
 }

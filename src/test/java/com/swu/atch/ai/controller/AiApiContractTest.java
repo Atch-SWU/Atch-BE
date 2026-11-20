@@ -217,9 +217,11 @@ class AiApiContractTest extends IsolatedAuthIntegrationTest {
             var media = api.path("paths").path(example.path()).path("post").path("requestBody")
                     .path("content").path("application/json");
             assertThat(media.path("schema").path("$ref").asText()).isEqualTo("#/components/schemas/" + example.schema());
-            var value = media.path("examples").path("요청 예시").path("value");
-            assertThat(value.isObject()).isTrue();
-            assertThat(validator.validate(json.treeToValue(value, example.type()))).isEmpty();
+            for (var name : media.path("examples").propertyNames()) {
+                var value = media.path("examples").path(name).path("value");
+                assertThat(value.isObject()).isTrue();
+                assertThat(validator.validate(json.treeToValue(value, example.type()))).isEmpty();
+            }
         }
         for (var arguments : routes().toList()) {
             var args = arguments.get();

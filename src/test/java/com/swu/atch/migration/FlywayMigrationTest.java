@@ -29,7 +29,7 @@ class FlywayMigrationTest {
             .withReuse(false);
 
     @Test
-    void preservesExistingDataWhenUpgradingThroughV15AndDoesNotReapplyMigrations() throws Exception {
+    void preservesExistingDataWhenUpgradingThroughV16AndDoesNotReapplyMigrations() throws Exception {
         var dataSource = new DriverManagerDataSource(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         try (var connection = dataSource.getConnection()) {
@@ -292,7 +292,42 @@ class FlywayMigrationTest {
                     ai_estimated_duration_minutes=null, selected_estimate_type=null where id=?
                 """, todoId)).isEqualTo(1);
         assertThat(jdbc.update("update recurrence_rules set default_user_estimated_duration_minutes=null where id=?", ruleId)).isEqualTo(1);
-        System.out.println("V3->V9->V10->V11->V12->V13->V14->V15: preserved users/auth/settings/todos/patterns/rules; "
+        long legacyItem = jdbc.queryForObject("""
+                insert into character_items(name,grade,category,asset_key,active)
+                values ('기존 모자','A','ACCESSORY','character/legacy-hat',true) returning id
+                """, Long.class);
+        jdbc.update("insert into user_character_items(user_id,character_item_id) values (?,?)", owner, legacyItem);
+        jdbc.update("insert into user_equipped_items(user_id,category,character_item_id,equipped_at) values (?,'ACCESSORY',?,current_timestamp)", owner, legacyItem);
+        jdbc.update("""
+                insert into reward_settlements(user_id,reward_date,assigned_todo_count,completed_todo_count,completion_rate,settled_at)
+                values (?,'2026-10-22',1,1,100,current_timestamp)
+                """, owner);
+        jdbc.update("""
+                insert into reward_grants(user_id,character_item_id,reward_date,reward_grade,completion_rate,granted_at)
+                values (?,?,'2026-10-22','A',100,current_timestamp)
+                """, owner, legacyItem);
+        var beforeV16 = new java.util.LinkedHashMap<String, List<String>>();
+        for (String table : jdbc.queryForList("select tablename from pg_tables where schemaname='public' and tablename<>'flyway_schema_history'", String.class)) {
+            beforeV16.put(table, jdbc.queryForList("select to_jsonb(t)::text from " + table + " t order by to_jsonb(t)::text", String.class));
+        }
+        var historyV15 = jdbc.queryForList("select * from flyway_schema_history order by installed_rank");
+        var v16 = migration(dataSource, "16");
+        assertThat(v16.migrate().migrationsExecuted).isEqualTo(1);
+        v16.validate();
+        assertThat(jdbc.queryForList("select * from flyway_schema_history where version<>'16' order by installed_rank")).isEqualTo(historyV15);
+        for (var entry : beforeV16.entrySet()) {
+            String row = entry.getKey().equals("character_items") ? "(to_jsonb(t)-'item_code'-'asset_sha256')" : "to_jsonb(t)";
+            assertThat(jdbc.queryForList("select " + row + "::text from " + entry.getKey() + " t order by " + row + "::text", String.class))
+                    .containsExactlyElementsOf(entry.getValue());
+        }
+        assertThat(jdbc.queryForObject("select item_code is null and asset_sha256 is null from character_items where id=?", Boolean.class, legacyItem)).isTrue();
+        assertThat(v16.migrate().migrationsExecuted).isZero();
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () ->
+                jdbc.update("update character_items set item_code='one-sided' where id=?", legacyItem));
+        assertThat(jdbc.update("update character_items set item_code='legacy-hat',asset_sha256=? where id=?", "a".repeat(64), legacyItem)).isEqualTo(1);
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () ->
+                jdbc.update("insert into character_items(name,grade,category,asset_key,active,item_code,asset_sha256) values ('중복 모자','A','ACCESSORY','item/duplicate.png',true,'legacy-hat',?)", "a".repeat(64)));
+        System.out.println("V3->V9->V10->V11->V12->V13->V14->V15->V16: preserved users/auth/settings/todos/patterns/rules/items/ownership/equipment; "
                 + "legacy recurrence guard verified; rerun migrations=0; "
                 + "database=atch_migration_test; container=" + POSTGRES.getContainerId());
     }

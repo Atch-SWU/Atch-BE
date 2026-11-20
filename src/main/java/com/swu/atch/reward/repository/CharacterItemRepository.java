@@ -10,10 +10,16 @@ import com.swu.atch.reward.domain.ItemGrade;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Collection;
 
 // 캐릭터 아이템 카탈로그 조회
 public interface CharacterItemRepository
         extends JpaRepository<CharacterItem, Long> {
+
+    List<CharacterItem> findAllByItemCodeIn(Collection<String> itemCodes);
+
+    // DB 커밋 결과가 불확실할 때 실제 참조 여부를 확인한 뒤 임시 이미지를 정리한다.
+    List<CharacterItem> findAllByAssetKeyIn(Collection<String> assetKeys);
 
     // 특정 등급의 지급 가능한 아이템 목록
     List<CharacterItem> findAllByGradeAndActiveTrueOrderByIdAsc(

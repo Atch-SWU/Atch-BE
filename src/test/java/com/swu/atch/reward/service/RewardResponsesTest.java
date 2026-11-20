@@ -14,11 +14,14 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class RewardResponsesTest {
+    private final RewardResponses responses = new RewardResponses(
+            new com.swu.atch.reward.asset.CharacterAssetUrls(
+                    new com.swu.atch.reward.asset.CharacterAssetProperties("https://assets.atch.cloud", "", "ap-northeast-2", "item/")));
     private final Instant now = Instant.parse("2026-11-05T03:00:00Z");
     private final LocalDate day = LocalDate.of(2026, 11, 4);
 
     @Test void returnsAllFourEmptySlotsWithoutInventingEquipment() {
-        var result = RewardResponses.character(List.of(), 0, 0, now);
+        var result = responses.character(List.of(), 0, 0, now);
         assertThat(result.slots()).extracting(s -> s.category()).containsExactly(ItemCategory.values());
         assertThat(result.slots()).allSatisfy(s -> {
             assertThat(s.item()).isNull(); assertThat(s.equippedAt()).isNull(); assertThat(s.updatedAt()).isNull();
@@ -30,7 +33,7 @@ class RewardResponsesTest {
     @Test void preservesInactiveEquipmentAndItsTimestamp() {
         var item = item(12, ItemGrade.B, ItemCategory.EYES);
         var equipped = UserEquippedItem.equip(user(1), item, now);
-        var result = RewardResponses.character(List.of(equipped), 2, 2, now);
+        var result = responses.character(List.of(equipped), 2, 2, now);
         var slot = result.slots().get(2);
         assertThat(slot.item().id()).isEqualTo(12);
         assertThat(slot.item().active()).isFalse();
@@ -40,20 +43,20 @@ class RewardResponsesTest {
 
     @Test void rejectsWrongOrDuplicateSlots() {
         var row = UserEquippedItem.equip(user(1), item(12, ItemGrade.B, ItemCategory.EYES), now);
-        assertThatThrownBy(() -> RewardResponses.slot(ItemCategory.COLOR, row)).isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> RewardResponses.character(List.of(row, row), 1, 1, now)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> responses.slot(ItemCategory.COLOR, row)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> responses.character(List.of(row, row), 1, 1, now)).isInstanceOf(BusinessException.class);
     }
 
     @Test void marksOwnedItemUsingCharacterItemId() {
         var owned = UserCharacterItem.acquire(user(1), item(12, ItemGrade.B, ItemCategory.COLOR));
-        assertThat(RewardResponses.owned(owned, Set.of(12L)).equipped()).isTrue();
-        assertThat(RewardResponses.owned(owned, Set.of(99L)).equipped()).isFalse();
+        assertThat(responses.owned(owned, Set.of(12L)).equipped()).isTrue();
+        assertThat(responses.owned(owned, Set.of(99L)).equipped()).isFalse();
     }
 
     @Test void distinguishesEligibleGradesFromActualGrantAndPreservesConfirmedResult() {
         var settlement = RewardSettlement.settle(user(1), day, 4, 3, now);
         var grant = RewardGrant.fromSettlement(settlement, item(12, ItemGrade.A, ItemCategory.COLOR), now);
-        var result = RewardResponses.settlement(settlement, List.of(grant));
+        var result = responses.settlement(settlement, List.of(grant));
         assertThat(result.eligibleGrades()).containsExactly(ItemGrade.B, ItemGrade.A);
         assertThat(result.grants()).hasSize(1);
         assertThat(result.grants().getFirst().rewardGrade()).isEqualTo(ItemGrade.A);
@@ -63,11 +66,11 @@ class RewardResponsesTest {
 
     @Test void noGrantStillReturnsSettlementAndSortsRealGrantsInBASOrder() {
         var settlement = RewardSettlement.settle(user(1), day, 1, 1, now);
-        assertThat(RewardResponses.settlement(settlement, List.of()).grants()).isEmpty();
+        assertThat(responses.settlement(settlement, List.of()).grants()).isEmpty();
         var s = RewardGrant.fromSettlement(settlement, item(1, ItemGrade.S, ItemCategory.COLOR), now);
         var a = RewardGrant.fromSettlement(settlement, item(2, ItemGrade.A, ItemCategory.EYES), now);
         var b = RewardGrant.fromSettlement(settlement, item(3, ItemGrade.B, ItemCategory.BACKGROUND), now);
-        assertThat(RewardResponses.settlement(settlement, List.of(s, a, b)).grants())
+        assertThat(responses.settlement(settlement, List.of(s, a, b)).grants())
                 .extracting(g -> g.rewardGrade()).containsExactly(ItemGrade.B, ItemGrade.A, ItemGrade.S);
     }
 
@@ -77,17 +80,17 @@ class RewardResponsesTest {
         for (var other : List.of(RewardSettlement.settle(user(2), day, 1, 1, now),
                 RewardSettlement.settle(user(1), day.minusDays(1), 1, 1, now))) {
             var grant = RewardGrant.fromSettlement(other, item, now);
-            assertThatThrownBy(() -> RewardResponses.settlement(settlement, List.of(grant))).isInstanceOf(BusinessException.class);
+            assertThatThrownBy(() -> responses.settlement(settlement, List.of(grant))).isInstanceOf(BusinessException.class);
         }
         var b = RewardGrant.fromSettlement(settlement, item, now);
         var otherB = RewardGrant.fromSettlement(settlement, item(13, ItemGrade.B, ItemCategory.EYES), now);
-        assertThatThrownBy(() -> RewardResponses.settlement(settlement, List.of(b, otherB))).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> responses.settlement(settlement, List.of(b, otherB))).isInstanceOf(BusinessException.class);
     }
 
     @Test void rejectsGrantAboveRawCompletionThreshold() {
         var settlement = RewardSettlement.settle(user(1), day, 2, 1, now);
         var a = RewardGrant.fromSettlement(settlement, item(12, ItemGrade.A, ItemCategory.COLOR), now);
-        assertThatThrownBy(() -> RewardResponses.settlement(settlement, List.of(a))).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> responses.settlement(settlement, List.of(a))).isInstanceOf(BusinessException.class);
     }
 
     private User user(long id) {
