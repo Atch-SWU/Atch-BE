@@ -395,6 +395,18 @@ class TodoApiIntegrationTest extends IsolatedAuthIntegrationTest {
     }
 
     @Test
+    void createsOrdinaryTodoWithCreationRequestId() throws Exception {
+        var owner = actor();
+        var form = input("직접 등록한 작업", DAY);
+        form.put("creationRequestId", UUID.randomUUID().toString());
+        var created = body(owner, post("/api/v1/todos"), form, 201);
+
+        assertThat(created.path("estimatedDurationMinutes").asInt()).isEqualTo(30);
+        assertThat(created.path("selectedEstimateType").asText()).isEqualTo("USER");
+        assertThat(created.path("aiEstimatedDurationMinutes").isNull()).isTrue();
+    }
+
+    @Test
     void createsWithoutEstimateAndReplacesOrClearsTheEstimateOnPut() throws Exception {
         var a = actor();
         var form = input("예상시간 선택", DAY);
