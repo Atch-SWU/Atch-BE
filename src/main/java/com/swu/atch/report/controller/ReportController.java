@@ -34,6 +34,78 @@ import org.springdoc.core.annotations.ParameterObject;
         @ApiResponse(responseCode = "503", description = "인증 기반 장애 또는 일일 확정 복구 대기", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
 })
 public class ReportController {
+    private static final String DAY_SUMMARY_EXAMPLE = """
+              "date": "2026-11-23",
+              "state": "LIVE",
+              "assignedCount": 2,
+              "completedAssignedCount": 1,
+              "completionRate": 0.5,
+              "completedTodoCount": 1,
+              "overdueAssignedCount": 0,
+              "closedFocusDurationSeconds": 1620,
+              "liveFocusDurationSeconds": 0,
+              "pauseCount": 1,
+              "resumeCount": 1,
+              "asOf": "2026-11-23T01:30:00Z",
+              "focusBuckets": [
+                {"startHour": 0, "closedDurationSeconds": 0, "liveDurationSeconds": 0},
+                {"startHour": 2, "closedDurationSeconds": 0, "liveDurationSeconds": 0},
+                {"startHour": 4, "closedDurationSeconds": 0, "liveDurationSeconds": 0},
+                {"startHour": 6, "closedDurationSeconds": 0, "liveDurationSeconds": 0},
+                {"startHour": 8, "closedDurationSeconds": 1620, "liveDurationSeconds": 0},
+                {"startHour": 10, "closedDurationSeconds": 0, "liveDurationSeconds": 0},
+                {"startHour": 12, "closedDurationSeconds": 0, "liveDurationSeconds": 0},
+                {"startHour": 14, "closedDurationSeconds": 0, "liveDurationSeconds": 0},
+                {"startHour": 16, "closedDurationSeconds": 0, "liveDurationSeconds": 0},
+                {"startHour": 18, "closedDurationSeconds": 0, "liveDurationSeconds": 0},
+                {"startHour": 20, "closedDurationSeconds": 0, "liveDurationSeconds": 0},
+                {"startHour": 22, "closedDurationSeconds": 0, "liveDurationSeconds": 0}
+              ]
+            """;
+    private static final String DAILY_REPORT_EXAMPLE = "{\n" + DAY_SUMMARY_EXAMPLE + "," + """
+              "focusDetails": {
+                "peakFocusStartHour": 8,
+                "averageFocusPerTodoSeconds": 1620.0,
+                "todos": [
+                  {
+                    "todoId": 123,
+                    "currentTitle": "기획안 작성",
+                    "firstActivityAt": "2026-11-23T00:00:00Z",
+                    "closedFocusDurationSeconds": 1620,
+                    "liveFocusDurationSeconds": 0,
+                    "pauseCount": 1
+                  }
+                ]
+              }
+            }
+            """;
+    private static final String WEEKLY_REPORT_EXAMPLE = """
+            {
+              "weekStart": "2026-11-23",
+              "from": "2026-11-23",
+              "to": "2026-11-23",
+              "days": [{
+            """ + DAY_SUMMARY_EXAMPLE + """
+              }],
+              "assignedCount": 2,
+              "completedAssignedCount": 1,
+              "completionRate": 0.5,
+              "completedTodoCount": 1,
+              "totalFocusDurationSeconds": 1620,
+              "elapsedDayCount": 1,
+              "averageDailyFocusDurationSeconds": 1620.0,
+              "asOf": "2026-11-23T01:30:00Z",
+              "peakFocusDate": "2026-11-23",
+              "focusStreakDays": 1,
+              "aiPrediction": {
+                "sampleCount": 1,
+                "closenessRate": 0.9,
+                "meanAbsoluteErrorSeconds": 180.0,
+                "meanSignedErrorSeconds": -180.0
+              }
+            }
+            """;
+
     private final ReportService service;
 
     @GetMapping(value = "/reports/daily", produces = "application/json")
@@ -52,7 +124,9 @@ public class ReportController {
             - `focusDetails.todos`는 조회 날짜에 생성한 작업들의 당일 집중 기록입니다. 같은 작업의 시작·재개 구간을 한 행에 모으고 첫 기록 시각 순으로 반환합니다.
             - 일시정지 횟수는 해당 날짜에 발생한 일시정지 이벤트를 기준으로 셉니다. 삭제한 작업의 집중 기록은 합산하며 목록에서 그 작업 제목을 null로 표시합니다.
             """)
-    @ApiResponse(responseCode = "200", description = "일간 집계", content = @Content(schema = @Schema(implementation = DailyReportResponse.class)))
+    @ApiResponse(responseCode = "200", description = "일간 집계",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = DailyReportResponse.class),
+                    examples = @ExampleObject(name = "report", summary = "당일 집중 기록", value = DAILY_REPORT_EXAMPLE)))
     public DailyReportResponse daily(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @Valid @ModelAttribute @ParameterObject ReportDateQuery query
@@ -75,7 +149,9 @@ public class ReportController {
             - `aiPrediction`은 해당 주에 완료한 유효 투두 중 AI 제안과 종료 타이머 기록이 있는 작업 전체를 집계합니다. 실제시간은 작업의 종료 구간 합계입니다. 저장된 AI 제안이 있으면 사용자 예상시간을 선택했어도 포함합니다.
             - 근접도는 작업별 짧은 시간 ÷ 긴 시간의 평균(0~1)입니다. 실제 0초를 기록한 작업은 포함하며, 표본이 0개면 근접도와 평균 오차는 null입니다.
             """)
-    @ApiResponse(responseCode = "200", description = "주간 집계", content = @Content(schema = @Schema(implementation = WeeklyReportResponse.class)))
+    @ApiResponse(responseCode = "200", description = "주간 집계",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = WeeklyReportResponse.class),
+                    examples = @ExampleObject(name = "report", summary = "월요일 현재 주간 집계", value = WEEKLY_REPORT_EXAMPLE)))
     public WeeklyReportResponse weekly(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @Valid @ModelAttribute @ParameterObject ReportDateQuery query
