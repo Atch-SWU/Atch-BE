@@ -137,6 +137,21 @@ class ReportApiContractTest extends IsolatedAuthIntegrationTest {
             assertThat(item.path("get").path("description").asText()).doesNotContain("현재 501");
             assertThat(item.path("get").path("security").toString()).contains("bearerAuth");
         }
+        var dailyResponse = api.path("paths").path("/api/v1/reports/daily").path("get")
+                .path("responses").path("200").path("content").path("application/json");
+        var weeklyResponse = api.path("paths").path("/api/v1/reports/weekly").path("get")
+                .path("responses").path("200").path("content").path("application/json");
+        assertThat(dailyResponse.path("schema").path("$ref").asText()).isEqualTo("#/components/schemas/DailyReportResponse");
+        assertThat(weeklyResponse.path("schema").path("$ref").asText()).isEqualTo("#/components/schemas/WeeklyReportResponse");
+        var dailyExample = dailyResponse.path("examples").path("report").path("value");
+        var weeklyExample = weeklyResponse.path("examples").path("report").path("value");
+        assertThat(dailyExample.isObject()).isTrue();
+        assertThat(dailyExample.path("focusBuckets").size()).isEqualTo(12);
+        assertThat(dailyExample.path("focusDetails").path("todos").isArray()).isTrue();
+        assertThat(weeklyExample.isObject()).isTrue();
+        assertThat(weeklyExample.path("days").get(0).path("focusBuckets")).isEqualTo(dailyExample.path("focusBuckets"));
+        assertThat(weeklyExample.path("days").get(0).has("focusDetails")).isFalse();
+        assertThat(weeklyExample.path("aiPrediction").path("sampleCount").asInt()).isEqualTo(1);
         var properties = api.path("components").path("schemas").path("DailyReportResponse").path("properties");
         assertThat(properties.has("completionRate")).isTrue();
         assertThat(properties.path("closedFocusDurationSeconds").path("format").asText()).isEqualTo("int64");
