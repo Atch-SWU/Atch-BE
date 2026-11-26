@@ -25,11 +25,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import java.sql.Timestamp;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 
@@ -309,12 +311,161 @@ class TimerReportIntegrationTest extends IsolatedAuthIntegrationTest {
         var week=body(a,get("/api/v1/reports/weekly").param("date",DAY.plusDays(1).toString()),null,200);
         // 월요일~수요일은 도입 이전이라 주간 배정 합계가 아직 확정 자료 없음이다.
         assertThat(week.path("assignedCount").isNull()).isTrue();assertThat(week.path("elapsedDayCount").asInt()).isEqualTo(5);
+        assertThat(week.path("aiPrediction").path("sampleCount").asLong()).isZero();
+        assertThat(week.path("aiPrediction").path("closenessRate").isNull()).isTrue();
+        assertThat(week.path("aiPrediction").path("meanAbsoluteErrorSeconds").isNull()).isTrue();
+        assertThat(week.path("aiPrediction").path("meanSignedErrorSeconds").isNull()).isTrue();
         var pattern=body(a,get("/api/v1/reports/focus-patterns").param("from",DAY.toString()).param("to",DAY.plusDays(1).toString()),null,200);
         long sum=0;for(var bucket:pattern.path("hours"))sum+=bucket.path("closedDurationSeconds").asLong();assertThat(sum).isEqualTo(90);
         assertThat(pattern.path("weekdays").get(3).path("totalDurationSeconds").asLong()).isEqualTo(90);
         assertThat(jdbc.queryForObject("select duration_seconds from sessions where id=?",Integer.class,sid)).isEqualTo(90);
         body(a,get("/api/v1/reports/daily").param("date",DAY.plusYears(4).toString()),null,400);
         body(a,get("/api/v1/reports/focus-patterns").param("from",DAY.toString()).param("to",DAY.minusDays(1).toString()),null,400);
+    }
+
+    @Test
+    void dailySessionsUseCreationDateAndFocusTotalsAgreeAcrossTimeBoundaries() throws Exception {
+        var actor = actor();
+        LocalDate nextDay = DAY.plusDays(1);
+        Instant midnight = Instant.parse("2026-10-29T15:00:00Z");
+        long resumedTodo = create(actor, "자정을 넘긴 작업", DAY);
+        long deletedTodo = create(actor, "삭제되는 작업", nextDay);
+        long runningTodo = create(actor, "실행 중인 작업", nextDay);
+        // 생성 타임스탬프를 타이머 검증 시각의 서울 날짜에 맞춘다.
+        setCreatedAt(resumedTodo, midnight.minusSeconds(60));
+        setCreatedAt(deletedTodo, midnight);
+        setCreatedAt(runningTodo, midnight.plusSeconds(99));
+
+        NOW.set(midnight.minusSeconds(30));
+        long sessionId = body(actor, post(path(resumedTodo) + "/timer/start"), "{}", 200)
+                .path("sessionId").asLong();
+        NOW.set(midnight.plusSeconds(30));
+        body(actor, post(path(resumedTodo) + "/timer/pause"), "{\"sessionId\":" + sessionId + "}", 200);
+        NOW.set(midnight.plusSeconds(35));
+        body(actor, post(path(resumedTodo) + "/timer/resume"), "{\"lastSessionId\":" + sessionId + "}", 200);
+        NOW.set(midnight.plusSeconds(65));
+        body(actor, post(path(resumedTodo) + "/complete"), null, 200);
+        long deletedSession = body(actor, post(path(deletedTodo) + "/timer/start"), "{}", 200)
+                .path("sessionId").asLong();
+        NOW.set(midnight.plusSeconds(75));
+        body(actor, post(path(deletedTodo) + "/timer/pause"), "{\"sessionId\":" + deletedSession + "}", 200);
+        body(actor, post(path(deletedTodo) + "/timer/resume"), "{\"lastSessionId\":" + deletedSession + "}", 200);
+        NOW.set(midnight.plusSeconds(95));
+        body(actor, post(path(deletedTodo) + "/complete"), null, 200);
+        body(actor, delete(path(deletedTodo)), null, 204);
+        NOW.set(midnight.plusSeconds(100));
+        body(actor, post(path(runningTodo) + "/timer/start"), "{}", 200);
+        NOW.set(midnight.plusSeconds(7_265));
+
+        var previousDay = daily(actor, DAY);
+        assertThat(previousDay.path("closedFocusDurationSeconds").asLong()).isEqualTo(30);
+        assertThat(previousDay.path("focusBuckets").get(11).path("startHour").asInt()).isEqualTo(22);
+        assertThat(previousDay.path("focusBuckets").get(11).path("closedDurationSeconds").asLong()).isEqualTo(30);
+        assertThat(previousDay.path("pauseCount").asLong()).isZero();
+        var previousRows = previousDay.path("focusDetails").path("todos");
+        assertThat(previousRows.size()).isEqualTo(1);
+        assertThat(previousRows.get(0).path("todoId").asLong()).isEqualTo(resumedTodo);
+        assertThat(previousRows.get(0).path("closedFocusDurationSeconds").asLong()).isEqualTo(30);
+
+        var day = daily(actor, nextDay);
+        assertThat(day.path("closedFocusDurationSeconds").asLong()).isEqualTo(90);
+        assertThat(day.path("liveFocusDurationSeconds").asLong()).isEqualTo(7_165);
+        assertThat(day.path("pauseCount").asLong()).isEqualTo(2);
+        var buckets = day.path("focusBuckets");
+        assertThat(buckets.size()).isEqualTo(12);
+        assertThat(buckets.get(0).path("closedDurationSeconds").asLong()).isEqualTo(90);
+        assertThat(buckets.get(0).path("liveDurationSeconds").asLong()).isEqualTo(7_100);
+        assertThat(buckets.get(1).path("startHour").asInt()).isEqualTo(2);
+        assertThat(buckets.get(1).path("liveDurationSeconds").asLong()).isEqualTo(65);
+        var details = day.path("focusDetails");
+        assertThat(details.path("peakFocusStartHour").asInt()).isZero();
+        assertThat(details.path("averageFocusPerTodoSeconds").asDouble()).isCloseTo(7_255.0 / 3, within(1e-9));
+        var rows = details.path("todos");
+        assertThat(rows.size()).isEqualTo(2);
+        assertThat(rows.get(0).path("todoId").asLong()).isEqualTo(deletedTodo);
+        assertThat(rows.get(0).path("firstActivityAt").asText()).isEqualTo(midnight.plusSeconds(65).toString());
+        assertThat(rows.get(0).path("closedFocusDurationSeconds").asLong()).isEqualTo(30);
+        assertThat(rows.get(0).path("pauseCount").asLong()).isEqualTo(1);
+        assertThat(rows.get(0).path("currentTitle").isNull()).isTrue();
+        assertThat(rows.get(1).path("todoId").asLong()).isEqualTo(runningTodo);
+        assertThat(rows.get(1).path("liveFocusDurationSeconds").asLong()).isEqualTo(7_165);
+
+        var week = body(actor, get("/api/v1/reports/weekly"), null, 200);
+        assertThat(week.path("totalFocusDurationSeconds").asLong()).isEqualTo(7_285);
+        assertThat(week.path("peakFocusDate").asText()).isEqualTo(nextDay.toString());
+        assertThat(week.path("focusStreakDays").asInt()).isEqualTo(2);
+        for (var weeklyDay : week.path("days")) assertThat(weeklyDay.has("focusDetails")).isFalse();
+        assertThat(week.path("days").get(4).path("focusBuckets")).isEqualTo(buckets);
+        assertThat(week.path("asOf").asText()).isEqualTo(day.path("asOf").asText());
+    }
+
+    @Test
+    void focusStreakCrossesWeeksAndWaitsForTheCurrentDayToEnd() throws Exception {
+        var actor = actor();
+        long todo = create(actor, "연속 집중", DAY);
+        for (int daysAgo = 7; daysAgo >= 0; daysAgo--) {
+            recordClosedSession(todo, NOON.minusSeconds(daysAgo * 86_400L).minusSeconds(60), 60, "PAUSED");
+        }
+        NOW.set(NOON.plusSeconds(86_400));
+
+        var current = body(actor, get("/api/v1/reports/weekly"), null, 200);
+        assertThat(current.path("focusStreakDays").asInt()).isEqualTo(8);
+        assertThat(current.path("peakFocusDate").asText()).isEqualTo(DAY.minusDays(3).toString());
+        var previous = body(actor, get("/api/v1/reports/weekly").param("date", DAY.minusDays(4).toString()), null, 200);
+        assertThat(previous.path("focusStreakDays").asInt()).isEqualTo(4);
+        var empty = daily(actor, DAY.plusDays(1)).path("focusDetails");
+        assertThat(empty.path("peakFocusStartHour").isNull()).isTrue();
+        assertThat(empty.path("averageFocusPerTodoSeconds").isNull()).isTrue();
+        assertThat(empty.path("todos").size()).isZero();
+
+        NOW.set(NOON.plusSeconds(2 * 86_400L));
+        assertThat(body(actor, get("/api/v1/reports/weekly"), null, 200).path("focusStreakDays").asInt()).isZero();
+    }
+
+    @Test
+    void weeklyPredictionUsesAllEligibleCompletionsAndDistinguishesRecordedZero() throws Exception {
+        var actor = actor();
+        jdbc.update("""
+                with sample_times as (
+                    select n, cast(? as timestamptz) - n * interval '20 minute' as completed_at
+                    from generate_series(1, 100) n
+                ), completed as (
+                    insert into todos (user_id, title, start_at, due_at, current_schedule_date, all_day,
+                        user_estimated_duration_minutes, user_estimate_source, ai_estimated_duration_minutes,
+                        selected_estimate_type, status, completed_at)
+                    select ?, 'AI 표본 ' || n, completed_at - interval '20 minute', completed_at,
+                        (completed_at at time zone 'Asia/Seoul')::date, false, 30, 'USER_INPUT', 20,
+                        'USER', 'COMPLETED', completed_at
+                    from sample_times returning id, start_at, completed_at
+                )
+                insert into sessions (todo_id, started_at, ended_at, duration_seconds, end_reason)
+                select id, start_at, completed_at, 1200, 'COMPLETED' from completed
+                """, Timestamp.from(NOON), actor.id);
+        long longer = completedPrediction(actor, "예상보다 긴 작업", NOON);
+        recordClosedSession(longer, NOON.minusSeconds(5 * 86_400L), 1_200, "PAUSED");
+        recordClosedSession(longer, NOON.minusSeconds(1_200), 1_200, "COMPLETED");
+        long shorter = completedPrediction(actor, "예상보다 짧은 작업", NOON);
+        recordClosedSession(shorter, NOON.minusSeconds(600), 600, "COMPLETED");
+        long zero = completedPrediction(actor, "실제 0초", NOON);
+        recordClosedSession(zero, NOON, 0, "COMPLETED");
+        completedPrediction(actor, "종료 세션 없음", NOON);
+        Instant lastWeek = NOON.minusSeconds(7 * 86_400L);
+        long previousWeek = completedPrediction(actor, "지난주 완료", lastWeek);
+        recordClosedSession(previousWeek, lastWeek.minusSeconds(60), 60, "COMPLETED");
+        long deleted = completedPrediction(actor, "삭제된 완료", NOON);
+        recordClosedSession(deleted, NOON.minusSeconds(60), 60, "COMPLETED");
+        body(actor, delete(path(deleted)), null, 204);
+        long foreign = completedPrediction(actor(), "다른 사용자", NOON);
+        recordClosedSession(foreign, NOON.minusSeconds(60), 60, "COMPLETED");
+
+        var prediction = body(actor, get("/api/v1/reports/weekly"), null, 200).path("aiPrediction");
+        assertThat(prediction.path("sampleCount").asLong()).isEqualTo(103);
+        assertThat(prediction.path("closenessRate").asDouble()).isCloseTo(101.0 / 103, within(1e-12));
+        assertThat(prediction.path("meanAbsoluteErrorSeconds").asDouble()).isCloseTo(3_000.0 / 103, within(1e-9));
+        assertThat(prediction.path("meanSignedErrorSeconds").asDouble()).isCloseTo(-600.0 / 103, within(1e-9));
+        body(actor, post(path(longer) + "/reopen"), null, 200);
+        var afterReopen = body(actor, get("/api/v1/reports/weekly"), null, 200).path("aiPrediction");
+        assertThat(afterReopen.path("sampleCount").asLong()).isEqualTo(102);
     }
 
     @Test void waitingMetadataAndCursorAreRemovedOnWithdrawalWithoutTouchingOtherUser() throws Exception {
@@ -513,6 +664,23 @@ class TimerReportIntegrationTest extends IsolatedAuthIntegrationTest {
     }
     private long create(Actor actor,String title,LocalDate day)throws Exception{
         return body(actor,post("/api/v1/todos"),"{\"title\":\""+title+"\",\"startDate\":\""+day+"\",\"startTime\":\"09:00\",\"dueDate\":\""+day+"\",\"dueTime\":\"10:00\",\"allDay\":false,\"userEstimatedDurationMinutes\":30}",201).path("id").asLong();
+    }
+    private void setCreatedAt(long todoId, Instant createdAt) {
+        jdbc.update("update todos set created_at = ? where id = ?", Timestamp.from(createdAt), todoId);
+    }
+    private long completedPrediction(Actor actor, String title, Instant completedAt) throws Exception {
+        long id = create(actor, title, DAY);
+        jdbc.update("""
+                update todos set ai_estimated_duration_minutes = 20, status = 'COMPLETED', completed_at = ?
+                where id = ?
+                """, Timestamp.from(completedAt), id);
+        return id;
+    }
+    private void recordClosedSession(long todoId, Instant startedAt, int seconds, String endReason) {
+        jdbc.update("""
+                insert into sessions (todo_id, started_at, ended_at, duration_seconds, end_reason)
+                values (?, ?, ?, ?, ?)
+                """, todoId, Timestamp.from(startedAt), Timestamp.from(startedAt.plusSeconds(seconds)), seconds, endReason);
     }
     private JsonNode daily(Actor a,LocalDate day)throws Exception{return body(a,get("/api/v1/reports/daily").param("date",day.toString()),null,200);}
     private JsonNode body(Actor actor,MockHttpServletRequestBuilder request,String body,int status)throws Exception{

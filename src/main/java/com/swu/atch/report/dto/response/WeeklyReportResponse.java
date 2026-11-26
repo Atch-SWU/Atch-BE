@@ -31,8 +31,23 @@ public record WeeklyReportResponse(
         @Schema(description = "경과 날짜 수로 나눈 하루 평균 집중시간(초)입니다.")
         Double averageDailyFocusDurationSeconds,
         @Schema(description = "조회·계산에 사용한 기준 시각(UTC)입니다. 새로 조회해도 보존된 계산 결과는 원래 기준 시각을 유지할 수 있습니다.")
-        Instant asOf
+        Instant asOf,
+        @Schema(description = "서울 기준으로 가장 오래 집중한 날짜입니다. 동률이면 이른 날짜이며 집중시간이 없으면 null입니다.", nullable = true)
+        LocalDate peakFocusDate,
+        @Schema(description = "마지막 집계일 기준 연속 집중 일수입니다. 오늘 기록이 없으면 어제부터 세며, 조회 가능 기간 안에서 이전 주까지 이어집니다.")
+        int focusStreakDays,
+        @Schema(description = "해당 주에 완료한 작업의 AI 제안 시간과 실제 집중시간 비교입니다.")
+        AiPredictionSummary aiPrediction
 ) {
-
+    public record AiPredictionSummary(
+            @Schema(description = "AI 제안과 종료 세션 기록이 모두 있는 유효 완료 작업 수입니다.")
+            long sampleCount,
+            @Schema(description = "작업별 짧은 시간 ÷ 긴 시간의 평균(0~1)입니다. 표본이 없으면 null입니다.", nullable = true, example = "0.88")
+            Double closenessRate,
+            @Schema(description = "실제 집중시간과 AI 제안 시간 차이의 절댓값 평균(초)입니다. 표본이 없으면 null입니다.", nullable = true)
+            Double meanAbsoluteErrorSeconds,
+            @Schema(description = "실제 집중시간에서 AI 제안 시간을 뺀 값의 평균(초)입니다. 양수는 실제가 더 오래 걸렸음을 뜻합니다. 표본이 없으면 null입니다.", nullable = true)
+            Double meanSignedErrorSeconds
+    ) { }
 }
 

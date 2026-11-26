@@ -95,9 +95,9 @@ class ReportApiContractTest extends IsolatedAuthIntegrationTest {
         var date = LocalDate.of(2026, 10, 28);
         var asOf = Instant.parse("2026-10-28T15:00:00Z");
         var empty = new DailyReportResponse(date, DailyReportResponse.State.FINALIZED,
-                0L, 0L, null, 0L, 0L, 0L, 0L, 0L, 0L, asOf);
+                0L, 0L, null, 0L, 0L, 0L, 0L, 0L, 0L, asOf, List.of(), null);
         var pending = new DailyReportResponse(date, DailyReportResponse.State.PENDING_FINALIZATION,
-                null, null, null, null, null, null, null, null, null, asOf);
+                null, null, null, null, null, null, null, null, null, asOf, List.of(), null);
         var zero = json.readTree(json.writeValueAsString(empty));
         var missing = json.readTree(json.writeValueAsString(pending));
         assertThat(zero.path("assignedCount").asLong()).isZero();
@@ -140,9 +140,14 @@ class ReportApiContractTest extends IsolatedAuthIntegrationTest {
         var properties = api.path("components").path("schemas").path("DailyReportResponse").path("properties");
         assertThat(properties.has("completionRate")).isTrue();
         assertThat(properties.path("closedFocusDurationSeconds").path("format").asText()).isEqualTo("int64");
+        assertThat(properties.propertyNames()).contains("focusBuckets", "focusDetails");
         assertThat(api.path("paths").has("/api/v1/reports/finalize")).isFalse();
         // 서로 다른 응답이 같은 단순 이름으로 합쳐지면 클라이언트 코드 생성이 잘못된다.
         var schemas = api.path("components").path("schemas");
+        assertThat(schemas.path("WeeklyReportResponse").path("properties").propertyNames())
+                .contains("days", "completedTodoCount", "completionRate", "peakFocusDate", "focusStreakDays", "aiPrediction");
+        assertThat(schemas.path("AiPredictionSummary").path("properties").propertyNames())
+                .contains("sampleCount", "closenessRate", "meanAbsoluteErrorSeconds", "meanSignedErrorSeconds");
         String snapshotRef = schemas.path("DailyTodoHistoryResponse").path("properties").path("items").path("items").path("$ref").asText();
         String comparisonRef = schemas.path("TimeComparisonPageResponse").path("properties").path("items").path("items").path("$ref").asText();
         assertThat(snapshotRef).isNotEqualTo(comparisonRef);

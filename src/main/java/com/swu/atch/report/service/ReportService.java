@@ -2,11 +2,9 @@ package com.swu.atch.report.service;
 
 import com.swu.atch.auth.service.AccountCredentials;
 import com.swu.atch.common.exception.*;
-import com.swu.atch.report.domain.UserDailySettlementState;
 import com.swu.atch.report.dto.request.*;
 import com.swu.atch.report.dto.response.*;
 import com.swu.atch.report.repository.*;
-import com.swu.atch.session.domain.*;
 import com.swu.atch.session.repository.SessionRepository;
 import com.swu.atch.todo.domain.*;
 import com.swu.atch.todo.repository.TodoRepository;
@@ -26,6 +24,8 @@ import java.util.*;
 @Transactional
 public class ReportService {
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
+    private static final int STREAK_LOOKBACK_DAYS = 28;
+    private static final int ACTUAL_DURATION_BATCH_SIZE = 1_000;
     private final UserRepository users;
     private final AccountCredentials credentials;
     private final DailySettlementService settlements;
@@ -36,25 +36,113 @@ public class ReportService {
     private final TodoSchedulePolicy clock;
 
     public DailyReportResponse daily(Long id, String stamp, ReportDateQuery query) {
-        Instant now = lock(id, stamp); LocalDate date = date(query.date(), now);
-        return dailyAt(id, date, now);
+        Instant now = lock(id, stamp);
+        LocalDate date = date(query.date(), now);
+        Instant from = start(date);
+        Instant to = start(date.plusDays(1));
+        var focus = DailyFocusSummary.summarize(sessions.findOverlapping(id, from, to), date.atStartOfDay(SEOUL), now, true);
+        return dailyAt(id, date, now, completedTodos(id, from, to).size(), focus);
     }
+
     public WeeklyReportResponse weekly(Long id, String stamp, ReportDateQuery query) {
-        Instant now = lock(id, stamp); LocalDate date = date(query.date(), now);
+        Instant now = lock(id, stamp);
+        LocalDate date = date(query.date(), now);
+        LocalDate today = clock.seoulDate(now);
         LocalDate monday = date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-        LocalDate earliest = clock.seoulDate(now).minusYears(3);
+        LocalDate earliest = today.minusYears(3);
         LocalDate from = monday.isBefore(earliest) ? earliest : monday;
-        LocalDate to = monday.plusDays(6).isAfter(clock.seoulDate(now)) ? clock.seoulDate(now) : monday.plusDays(6);
-        List<DailyReportResponse> days = from.datesUntil(to.plusDays(1)).map(d -> dailyAt(id,d,now)).toList();
-        boolean known = days.stream().allMatch(d -> d.assignedCount() != null);
+        LocalDate weekEnd = monday.plusDays(6);
+        LocalDate to = weekEnd.isAfter(today) ? today : weekEnd;
+        Instant rangeStart = start(from);
+        Instant rangeEnd = start(to.plusDays(1));
+        var recordedSessions = sessions.findOverlapping(id, rangeStart, rangeEnd);
+        var completedTodos = completedTodos(id, rangeStart, rangeEnd);
+        Map<LocalDate, Long> completedCounts = new HashMap<>();
+        for (Todo todo : completedTodos) {
+            completedCounts.merge(clock.seoulDate(todo.getCompletedAt()), 1L, Long::sum);
+        }
+        List<DailyReportResponse> days = from.datesUntil(to.plusDays(1))
+                .map(day -> dailyAt(id, day, now, completedCounts.getOrDefault(day, 0L),
+                        DailyFocusSummary.summarize(recordedSessions, day.atStartOfDay(SEOUL), now, false)))
+                .toList();
+
+        boolean known = days.stream().allMatch(day -> day.assignedCount() != null);
         Long assigned = known ? days.stream().mapToLong(DailyReportResponse::assignedCount).sum() : null;
         Long completed = known ? days.stream().mapToLong(DailyReportResponse::completedAssignedCount).sum() : null;
-        long totalFocus = days.stream().mapToLong(d -> d.closedFocusDurationSeconds()+d.liveFocusDurationSeconds()).sum();
+        long totalFocus = 0;
+        long peakSeconds = 0;
+        LocalDate peakDate = null;
+        for (var day : days) {
+            long seconds = focusSeconds(day);
+            totalFocus += seconds;
+            if (seconds > peakSeconds) {
+                peakDate = day.date();
+                peakSeconds = seconds;
+            }
+        }
+
         return new WeeklyReportResponse(monday, from, to, days, assigned, completed,
-                assigned == null || assigned == 0 ? null : completed.doubleValue()/assigned,
-                days.stream().mapToLong(DailyReportResponse::completedTodoCount).sum(), totalFocus, days.size(),
-                (double)totalFocus/days.size(),now);
+                assigned == null || assigned == 0 ? null : completed.doubleValue() / assigned,
+                (long) completedTodos.size(), totalFocus, days.size(), (double) totalFocus / days.size(), now,
+                peakDate, focusStreakDays(id, days, today, earliest, now), aiPrediction(id, completedTodos));
     }
+
+    private int focusStreakDays(Long id, List<DailyReportResponse> days, LocalDate today,
+                                LocalDate earliest, Instant now) {
+        int index = days.size() - 1;
+        var lastDay = days.get(index);
+        if (lastDay.date().equals(today) && focusSeconds(lastDay) == 0) index--;
+        int streak = 0;
+        for (; index >= 0; index--) {
+            if (focusSeconds(days.get(index)) == 0) return streak;
+            streak++;
+        }
+
+        LocalDate end = days.getFirst().date().minusDays(1);
+        while (!end.isBefore(earliest)) {
+            LocalDate from = end.minusDays(STREAK_LOOKBACK_DAYS - 1);
+            if (from.isBefore(earliest)) from = earliest;
+            var recordedSessions = sessions.findOverlapping(id, start(from), start(end.plusDays(1)));
+            for (LocalDate day = end; !day.isBefore(from); day = day.minusDays(1)) {
+                Instant dayStart = start(day);
+                Instant dayEnd = start(day.plusDays(1));
+                boolean focused = recordedSessions.stream()
+                        .anyMatch(session -> SessionTimeBuckets.seconds(session, dayStart, dayEnd, now) > 0);
+                if (!focused) return streak;
+                streak++;
+            }
+            end = from.minusDays(1);
+        }
+        return streak;
+    }
+
+    private long focusSeconds(DailyReportResponse day) {
+        return day.closedFocusDurationSeconds() + day.liveFocusDurationSeconds();
+    }
+
+    private WeeklyReportResponse.AiPredictionSummary aiPrediction(Long id, List<Todo> completedTodos) {
+        var withEstimate = completedTodos.stream()
+                .filter(todo -> todo.getAiEstimatedDurationMinutes() != null && todo.getAiEstimatedDurationMinutes() > 0)
+                .toList();
+        var measuredSeconds = actuals(id, withEstimate);
+        long count = 0;
+        double closeness = 0;
+        double signedError = 0;
+        double absoluteError = 0;
+        for (Todo todo : withEstimate) {
+            Long actual = measuredSeconds.get(todo.getId());
+            if (actual == null) continue;
+            long estimate = todo.getAiEstimatedDurationMinutes() * 60L;
+            long error = actual - estimate;
+            count++;
+            closeness += (double) Math.min(actual, estimate) / Math.max(actual, estimate);
+            signedError += error;
+            absoluteError += Math.abs(error);
+        }
+        if (count == 0) return new WeeklyReportResponse.AiPredictionSummary(0, null, null, null);
+        return new WeeklyReportResponse.AiPredictionSummary(count, closeness / count, absoluteError / count, signedError / count);
+    }
+
     public DailyTodoHistoryResponse history(Long id, String stamp, ReportDateQuery query) {
         Instant now = lock(id, stamp); LocalDate date = date(query.date(), now); var state = coverage(id,date,now);
         List<DailyTodoHistoryResponse.SnapshotItem> items;
@@ -84,7 +172,7 @@ public class ReportService {
                 point=right;
             }
         }
-        var completed = todos.findByUser_IdAndDeletedAtIsNullAndStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThanOrderByCompletedAtDescIdDesc(id,TodoStatus.COMPLETED,from,to);
+        var completed = completedTodos(id, from, to);
         Map<Long,Long> actual = actuals(id,completed);
         List<FocusPatternResponse.WeekdayBucket> weekdays = new ArrayList<>();
         for (DayOfWeek day : DayOfWeek.values()) {
@@ -115,7 +203,7 @@ public class ReportService {
     private Long comparisonError(Long measured, Integer estimatedMinutes) {
         return measured == null || estimatedMinutes == null ? null : measured - estimatedMinutes * 60L;
     }
-    private DailyReportResponse dailyAt(Long id,LocalDate date,Instant now) {
+    private DailyReportResponse dailyAt(Long id, LocalDate date, Instant now, long completedCount, DailyFocusSummary focus) {
         var state=coverage(id,date,now);
         Long assigned=null, completed=null, overdue=null;
         if(state==DailyReportResponse.State.LIVE) {
@@ -127,16 +215,13 @@ public class ReportService {
             assigned=(long)list.size(); completed=list.stream().filter(s->s.getStatusAtDayEnd()==TodoStatus.COMPLETED).count();
             overdue=list.stream().filter(s->s.isWasOverdue()).count();
         }
-        Instant from=start(date),to=start(date.plusDays(1));
-        long closed=0,live=0,pauses=0;
-        for(var s:sessions.findOverlapping(id,from,to)) {
-            long seconds=SessionTimeBuckets.seconds(s,from,to,now);
-            if(s.getEndedAt()==null) live+=seconds; else closed+=seconds;
-            if(s.getEndReason()==SessionEndReason.PAUSED && !s.getEndedAt().isBefore(from) && s.getEndedAt().isBefore(to) && !s.getEndedAt().isAfter(now)) pauses++;
-        }
-        long completedCount=todos.findByUser_IdAndDeletedAtIsNullAndStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThanOrderByCompletedAtDescIdDesc(id,TodoStatus.COMPLETED,from,to).size();
-        return new DailyReportResponse(date,state,assigned,completed,assigned==null||assigned==0?null:completed.doubleValue()/assigned,
-                completedCount,overdue,closed,live,pauses,sessions.countResumes(id,from,to.isAfter(now)?now.plusNanos(1_000):to),now);
+        Instant from = start(date);
+        Instant to = start(date.plusDays(1));
+        long resumes = sessions.countResumes(id, from, to.isAfter(now) ? now.plusNanos(1_000) : to);
+        return new DailyReportResponse(date, state, assigned, completed,
+                assigned == null || assigned == 0 ? null : completed.doubleValue() / assigned,
+                completedCount, overdue, focus.closedSeconds(), focus.liveSeconds(), focus.pauses(), resumes, now,
+                focus.buckets(), focus.details());
     }
     private DailyReportResponse.State coverage(Long id,LocalDate date,Instant now) {
         var state=states.findById(id).orElse(null);
@@ -162,10 +247,20 @@ public class ReportService {
     private boolean overdue(Todo t,Instant asOf) {
         return t.getStatus()==TodoStatus.COMPLETED ? t.getCompletedAt()!=null&&t.getCompletedAt().isAfter(t.getDueAt()) : !asOf.isBefore(t.getDueAt());
     }
-    private Map<Long,Long> actuals(Long id,List<Todo> list) {
-        Map<Long,Long> result=new HashMap<>();
-        if(!list.isEmpty()) for(var item:sessions.sumClosedDurationSecondsByTodoIdsAndUserId(list.stream().map(Todo::getId).toList(),id))
-            result.put(item.getTodoId(),item.getDurationSeconds());
+    private List<Todo> completedTodos(Long id, Instant from, Instant to) {
+        return todos.findByUser_IdAndDeletedAtIsNullAndStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThanOrderByCompletedAtDescIdDesc(
+                id, TodoStatus.COMPLETED, from, to);
+    }
+
+    private Map<Long, Long> actuals(Long id, List<Todo> list) {
+        Map<Long, Long> result = new HashMap<>();
+        for (int offset = 0; offset < list.size(); offset += ACTUAL_DURATION_BATCH_SIZE) {
+            int end = Math.min(offset + ACTUAL_DURATION_BATCH_SIZE, list.size());
+            var ids = list.subList(offset, end).stream().map(Todo::getId).toList();
+            for (var item : sessions.sumClosedDurationSecondsByTodoIdsAndUserId(ids, id)) {
+                result.put(item.getTodoId(), item.getDurationSeconds());
+            }
+        }
         return result;
     }
     private BusinessException invalid(){return new BusinessException(ErrorCode.INVALID_REQUEST);}
