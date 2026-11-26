@@ -47,6 +47,10 @@ public class ReportController {
             - `completionRate`는 0~1 비율이며 배정이 없거나 미확정이면 null입니다. null을 완료율 0%로 바꾸지 않습니다.
             - 과거 배정·완료율은 날짜별 확정 기록을 사용합니다.
             - `completedTodoCount`는 해당 날짜에 완료한 현재 유효 투두 수이므로 완료 취소·삭제 시 달라질 수 있습니다.
+            - `focusBuckets`는 서울 기준 0시부터 시작하는 두 시간 구간 12개입니다. 종료된 집중시간과 기준 시각 `asOf`까지의 실행 중 집중시간을 초로 나누어 제공합니다.
+            - `focusDetails`는 가장 오래 집중한 구간과 해당 날짜에 집중한 전체 작업 기준의 작업당 평균 집중시간(초)을 제공합니다.
+            - `focusDetails.todos`는 조회 날짜에 생성한 작업들의 당일 집중 기록입니다. 같은 작업의 시작·재개 구간을 한 행에 모으고 첫 기록 시각 순으로 반환합니다.
+            - 일시정지 횟수는 해당 날짜에 발생한 일시정지 이벤트를 기준으로 셉니다. 삭제한 작업의 집중 기록은 합산하며 목록에서 그 작업 제목을 null로 표시합니다.
             """)
     @ApiResponse(responseCode = "200", description = "일간 집계", content = @Content(schema = @Schema(implementation = DailyReportResponse.class)))
     public DailyReportResponse daily(
@@ -66,6 +70,10 @@ public class ReportController {
             - 이번 주는 오늘까지의 날짜를 포함하고 미래 날짜는 제외합니다.
             - 주간 완료율은 일별 완료율 평균이 아닌 전체 배정 수 대비 완료 수입니다.
             - 하루 평균 집중시간은 집중시간이 0인 날도 포함한 경과 날짜 수로 나눕니다.
+            - `days`의 날짜별 집중시간과 `focusBuckets`를 각각 요일별 막대, 주간 히트맵에 사용합니다. `peakFocusDate`는 가장 오래 집중한 날짜입니다. 동률이면 이른 날짜, 집중시간이 없으면 null입니다.
+            - `focusStreakDays`는 마지막 집계일부터 양의 집중시간이 기록된 연속 날짜 수입니다. 마지막 집계일이 오늘이고 기록이 없으면 어제부터 셉니다. 최근 3년 이내에서 이전 주까지 거슬러 올라갑니다.
+            - `aiPrediction`은 해당 주에 완료한 유효 투두 중 AI 제안과 종료 타이머 기록이 있는 작업 전체를 집계합니다. 실제시간은 작업의 종료 구간 합계입니다. 저장된 AI 제안이 있으면 사용자 예상시간을 선택했어도 포함합니다.
+            - 근접도는 작업별 짧은 시간 ÷ 긴 시간의 평균(0~1)입니다. 실제 0초를 기록한 작업은 포함하며, 표본이 0개면 근접도와 평균 오차는 null입니다.
             """)
     @ApiResponse(responseCode = "200", description = "주간 집계", content = @Content(schema = @Schema(implementation = WeeklyReportResponse.class)))
     public WeeklyReportResponse weekly(
