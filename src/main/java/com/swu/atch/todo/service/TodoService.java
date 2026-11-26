@@ -47,7 +47,6 @@ public class TodoService {
     @Transactional
     public TodoResponse create(Long userId, String stamp, TodoCreateRequest request) {
         if (request.estimateChoice() != null) return aiTodos.create(userId, stamp, request).todo();
-        if (request.creationRequestId() != null) throw new BusinessException(ErrorCode.INVALID_REQUEST);
         var locked = lockUser(userId, stamp);
         User user = locked.user();
         Instant now = locked.now();
