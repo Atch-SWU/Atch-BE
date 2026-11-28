@@ -38,7 +38,7 @@ public record TodoCreateRequest(
         Integer userEstimatedDurationMinutes,
         @Schema(description = "예상시간 선택 정보(선택). 생략하면 입력한 시간만 적용합니다. 예상시간이 없을 때는 AI 선택과 제안 토큰을 보낼 수 없습니다.")
         @jakarta.validation.Valid EstimateChoiceRequest estimateChoice,
-        @Schema(description = "중복 저장 방지용 UUID. estimateChoice를 보내면 필수이며 프론트가 한 저장 동작당 생성합니다. 같은 본문 재전송에는 같은 UUID를 유지합니다. 일반 생성에서 단독으로 보내도 중복 방지를 적용하지 않습니다.")
+        @Schema(description = "중복 저장 방지용 UUID. 일반 생성에서는 선택, estimateChoice가 있는 저장에서는 필수입니다. 서로 다른 저장 동작마다 새 UUID를 생성하며 응답 유실 시 같은 본문과 UUID를 다시 보냅니다.")
         java.util.UUID creationRequestId
 ) {
     public TodoCreateRequest(String title, String memo, LocalDate startDate, LocalTime startTime,

@@ -61,6 +61,10 @@ public class TodoController {
             {"title":"발표 준비","startDate":"2026-11-09","startTime":null,
              "dueDate":"2026-11-09","dueTime":null,"allDay":true,"userEstimatedDurationMinutes":null}
             """;
+    private static final String IDEMPOTENT_EXAMPLE = """
+            {"title":"발표 준비","startDate":"2026-11-28","dueDate":"2026-11-28","allDay":true,
+             "creationRequestId":"11111111-1111-4111-8111-111111111111"}
+            """;
 
     // 날짜·시각은 서울 현지 입력으로 받고, 저장·응답 시각은 Instant로 변환한다.
     @PostMapping(consumes = "application/json", produces = "application/json")
@@ -72,8 +76,8 @@ public class TodoController {
             - 신규 시작 날짜는 서울 기준 오늘 이후이며 오늘의 지난 시각은 허용합니다. 시각 지정은 마감>시작이어야 합니다. 미완료 투두의 마감 초과는 마감에 도달한 시각부터 판정합니다.
             - allDay=true는 같은 시작/마감 날짜와 null 시각을 입력하며 서울 기준 시각 00:00부터 다음 날 00:00 미만입니다.
             - userId·상태·반복 식별값·AI 예상값은 입력하지 않습니다.
-            - 일반 생성에서는 `estimateChoice`를 생략합니다. 함께 보낸 `creationRequestId`는 사용하지 않습니다. 응답이 유실되면 목록에서 저장 여부를 확인합니다.
-            - AI 초안 연결 시 `creationRequestId`와 `estimateChoice`를 전달합니다. 동일 생성 요청은 기존 응답을 200으로 반환합니다.
+            - 일반 생성에서는 `estimateChoice`를 생략합니다. 중복 저장을 방지하려면 저장 동작마다 새 `creationRequestId`를 보내고, 응답이 유실되면 같은 본문과 UUID를 다시 보냅니다. UUID가 없는 일반 저장은 요청마다 생성합니다.
+            - AI 초안을 연결할 때는 `creationRequestId`와 `estimateChoice`를 보냅니다. 같은 사용자의 동일 요청은 기존 생성 응답을 200으로 반환합니다. 다른 저장에 사용한 UUID를 재사용하면 409입니다.
 
             ### 저장 후 반복 추천을 표시하려면
 
@@ -87,14 +91,17 @@ public class TodoController {
     @ApiResponse(responseCode = "201", description = "생성된 Todo",
             headers = @Header(name = "Location", description = "생성 리소스 /api/v1/todos/{todoId}", schema = @Schema(type = "string")),
             content = @Content(schema = @Schema(implementation = TodoResponse.class)))
-    @ApiResponse(responseCode = "200", description = "동일 AI 생성 요청의 보존 결과", content = @Content(schema = @Schema(implementation = TodoResponse.class)))
-    @ApiResponse(responseCode = "409", description = "초안·요청·제안 충돌", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "200", description = "같은 UUID와 입력으로 재전송한 생성 요청의 최초 결과",
+            headers = @Header(name = "Location", description = "최초 응답의 투두 리소스 경로", schema = @Schema(type = "string")),
+            content = @Content(schema = @Schema(implementation = TodoResponse.class)))
+    @ApiResponse(responseCode = "409", description = "요청 UUID와 입력의 충돌 또는 AI 초안·제안 충돌", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public ResponseEntity<TodoResponse> create(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
                     content = @Content(mediaType = "application/json", schema = @Schema(implementation = TodoCreateRequest.class),
                             examples = {@ExampleObject(name = "시각 지정", value = TIMED_EXAMPLE), @ExampleObject(name = "하루종일", value = ALL_DAY_EXAMPLE),
-                                    @ExampleObject(name = "예상시간 없이 생성", value = NO_ESTIMATE_EXAMPLE)}))
+                                    @ExampleObject(name = "예상시간 없이 생성", value = NO_ESTIMATE_EXAMPLE),
+                                    @ExampleObject(name = "일반 생성과 재전송", value = IDEMPOTENT_EXAMPLE)}))
             @Valid @RequestBody TodoCreateRequest request
     ) {
         if (request.estimateChoice() != null) {
@@ -102,8 +109,9 @@ public class TodoController {
             return ResponseEntity.status(result.replayed() ? 200 : 201)
                     .header("Location", "/api/v1/todos/" + result.todo().id()).body(result.todo());
         }
-        TodoResponse result = service.create(id(jwt), stamp(jwt), request);
-        return ResponseEntity.created(URI.create("/api/v1/todos/" + result.id())).body(result);
+        var result = service.createOrdinary(id(jwt), stamp(jwt), request);
+        return ResponseEntity.status(result.replayed() ? HttpStatus.OK : HttpStatus.CREATED)
+                .location(URI.create("/api/v1/todos/" + result.todo().id())).body(result.todo());
     }
 
     // 상태 필터를 먼저 적용하고 페이지를 나눈다. 페이지를 읽은 뒤 필터링하면 개수·다음 페이지가 틀어진다.

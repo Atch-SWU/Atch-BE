@@ -34,6 +34,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.MockMvcPrint;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -395,15 +396,105 @@ class TodoApiIntegrationTest extends IsolatedAuthIntegrationTest {
     }
 
     @Test
-    void createsOrdinaryTodoWithCreationRequestId() throws Exception {
+    void ordinaryCreateReplayReturnsOriginalResultWithoutReducingDailyCompletionRate() throws Exception {
         var owner = actor();
         var form = input("직접 등록한 작업", DAY);
-        form.put("creationRequestId", UUID.randomUUID().toString());
-        var created = body(owner, post("/api/v1/todos"), form, 201);
+        var requestId = UUID.randomUUID();
+        form.put("creationRequestId", requestId.toString());
+        var first = send(owner, post("/api/v1/todos"), form);
+        assertThat(first.getStatus()).isEqualTo(201);
+        var created = json.readTree(first.getContentAsString());
+        long id = created.path("id").asLong();
 
         assertThat(created.path("estimatedDurationMinutes").asInt()).isEqualTo(30);
         assertThat(created.path("selectedEstimateType").asText()).isEqualTo("USER");
         assertThat(created.path("aiEstimatedDurationMinutes").isNull()).isTrue();
+        body(owner, post(path(id) + "/complete"), null, 200);
+
+        var replay = send(owner, post("/api/v1/todos"), form);
+        assertThat(replay.getStatus()).isEqualTo(200);
+        assertThat(replay.getHeader("Location")).isEqualTo(first.getHeader("Location")).isEqualTo(path(id));
+        assertThat(json.readTree(replay.getContentAsString())).isEqualTo(created);
+        var daily = body(owner, get("/api/v1/reports/daily"), null, 200);
+        assertThat(daily.path("assignedCount").asInt()).isEqualTo(1);
+        assertThat(daily.path("completedAssignedCount").asInt()).isEqualTo(1);
+        assertThat(daily.path("completionRate").asDouble()).isEqualTo(1.0);
+        assertThat(jdbc.queryForObject("select count(*) from ai_creation_requests where user_id=? and creation_request_id=? and draft_id is null",
+                Long.class, owner.id(), requestId)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("select count(*) from ai_drafts where user_id=?", Long.class, owner.id())).isZero();
+
+        form.put("memo", "다른 저장 요청");
+        assertThat(body(owner, post("/api/v1/todos"), form, 409).path("code").asText()).isEqualTo("RESOURCE_CONFLICT");
+    }
+
+    @Test
+    void replayAfterDeletionStaysScopedToTheUserAndDoesNotRecreateTodo() throws Exception {
+        var owner = actor();
+        var other = actor();
+        var form = input("삭제 후 재전송", DAY);
+        form.put("creationRequestId", UUID.randomUUID().toString());
+        form.remove("userEstimatedDurationMinutes");
+        var first = body(owner, post("/api/v1/todos"), form, 201);
+        long id = first.path("id").asLong();
+        body(owner, delete(path(id)), null, 204);
+
+        assertThat(body(other, post("/api/v1/todos"), form, 201).path("id").asLong()).isNotEqualTo(id);
+        assertThat(body(owner, post("/api/v1/todos"), form, 200)).isEqualTo(first);
+        assertThat(body(owner, get("/api/v1/todos"), null, 200).path("totalElements").asLong()).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from todos where user_id=?", Long.class, owner.id())).isEqualTo(1L);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void concurrentOrdinaryCreatesWithTheSameUuidCommitOneTodo() throws Exception {
+        var owner = actor();
+        var form = input("동시 생성", DAY);
+        form.put("creationRequestId", UUID.randomUUID().toString());
+        var start = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        Callable<MockHttpServletResponse> create = () -> {
+            assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+            return send(owner, post("/api/v1/todos"), form);
+        };
+        try {
+            var first = pool.submit(create);
+            var second = pool.submit(create);
+            start.countDown();
+            var a = first.get(15, TimeUnit.SECONDS);
+            var b = second.get(15, TimeUnit.SECONDS);
+            assertThat(List.of(a.getStatus(), b.getStatus())).containsExactlyInAnyOrder(201, 200);
+            assertThat(a.getHeader("Location")).isEqualTo(b.getHeader("Location"));
+            assertThat(json.readTree(a.getContentAsString())).isEqualTo(json.readTree(b.getContentAsString()));
+            assertThat(jdbc.queryForObject("select count(*) from todos where user_id=?", Long.class, owner.id())).isEqualTo(1L);
+            assertThat(jdbc.queryForObject("select count(*) from ai_creation_requests where user_id=?", Long.class, owner.id())).isEqualTo(1L);
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+            assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void failedOrdinaryCreationLedgerRollsBackTodoAndLeavesTheUuidAvailable() throws Exception {
+        var owner = actor();
+        var form = input("원장 실패 롤백", DAY);
+        form.put("creationRequestId", UUID.randomUUID().toString());
+        String trigger = "ordinary_create_" + owner.id();
+        jdbc.execute("create function " + trigger + "() returns trigger language plpgsql as $$ begin "
+                + "if new.user_id=" + owner.id() + " then raise exception 'synthetic rollback' using errcode='23514'; end if; return new; end $$");
+        try {
+            jdbc.execute("create trigger " + trigger + " before insert on ai_creation_requests for each row execute function " + trigger + "()");
+            body(owner, post("/api/v1/todos"), form, 500);
+            assertThat(jdbc.queryForObject("select count(*) from todos where user_id=?", Long.class, owner.id())).isZero();
+            assertThat(jdbc.queryForObject("select count(*) from ai_creation_requests where user_id=?", Long.class, owner.id())).isZero();
+            jdbc.execute("drop trigger " + trigger + " on ai_creation_requests");
+            var created = body(owner, post("/api/v1/todos"), form, 201);
+            assertThat(body(owner, post("/api/v1/todos"), form, 200)).isEqualTo(created);
+        } finally {
+            jdbc.execute("drop trigger if exists " + trigger + " on ai_creation_requests");
+            jdbc.execute("drop function " + trigger + "()");
+        }
     }
 
     @Test
@@ -474,7 +565,7 @@ class TodoApiIntegrationTest extends IsolatedAuthIntegrationTest {
         return body;
     }
 
-    private org.springframework.mock.web.MockHttpServletResponse send(Actor actor, MockHttpServletRequestBuilder request, Map<String, Object> input) throws Exception {
+    private MockHttpServletResponse send(Actor actor, MockHttpServletRequestBuilder request, Map<String, Object> input) throws Exception {
         request.header("Authorization", "Bearer " + actor.token());
         if (input != null) request.contentType("application/json").content(json.writeValueAsString(input));
         return mvc.perform(request).andReturn().getResponse();

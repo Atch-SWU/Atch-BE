@@ -229,7 +229,13 @@ class TodoApiContractTest extends IsolatedAuthIntegrationTest {
             assertThat(operation.path("parameters").toString()).doesNotContain("\"name\":\"jwt\"");
         }
         var collection = api.path("paths").path("/api/v1/todos");
-        assertThat(collection.path("post").path("responses").path("201").path("headers").has("Location")).isTrue();
+        var create = collection.path("post");
+        for (String code : List.of("200", "201")) {
+            assertThat(create.path("responses").path(code).path("headers").has("Location")).isTrue();
+        }
+        assertThat(create.path("responses").path("409").path("description").asText()).contains("UUID");
+        assertThat(create.path("requestBody").path("content").path("application/json").path("examples")
+                .path("일반 생성과 재전송").path("value").path("creationRequestId").asText()).isNotBlank();
         assertThat(collection.path("get").path("responses").path("200").path("content").path("application/json").path("schema").path("$ref").asText())
                 .isEqualTo("#/components/schemas/TodoPageResponse");
         var parameters = collection.path("get").path("parameters");
