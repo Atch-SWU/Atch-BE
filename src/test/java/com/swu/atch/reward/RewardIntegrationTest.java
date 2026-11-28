@@ -4,6 +4,11 @@ import com.swu.atch.auth.domain.AuthAccount;
 import com.swu.atch.auth.repository.AuthAccountRepository;
 import com.swu.atch.auth.jwt.JwtTokenService;
 import com.swu.atch.auth.service.AccountCredentials;
+import com.swu.atch.recurrence.domain.RecurrenceFrequency;
+import com.swu.atch.recurrence.domain.RecurrenceRule;
+import com.swu.atch.recurrence.domain.RepeatPattern;
+import com.swu.atch.recurrence.repository.RecurrenceRuleRepository;
+import com.swu.atch.recurrence.repository.RepeatPatternRepository;
 import com.swu.atch.report.domain.*;
 import com.swu.atch.report.repository.*;
 import com.swu.atch.report.service.*;
@@ -68,6 +73,8 @@ class RewardIntegrationTest extends IsolatedAuthIntegrationTest {
     @Autowired JwtTokenService jwt;
     @Autowired PasswordEncoder encoder;
     @Autowired TodoRepository todos;
+    @Autowired RecurrenceRuleRepository rules;
+    @Autowired RepeatPatternRepository patterns;
     @Autowired TodoDailySnapshotRepository snapshots;
     @Autowired UserDailySettlementStateRepository states;
     @Autowired CharacterItemRepository items;
@@ -112,6 +119,110 @@ class RewardIntegrationTest extends IsolatedAuthIntegrationTest {
         assertThat(settlements.count()).isEqualTo(1);
         assertThat(grants.count()).isEqualTo(count); assertThat(owned.count()).isEqualTo(count);
         assertThat(detail(a, DAY.minusDays(1))).isEqualTo(row);
+    }
+
+    @ParameterizedTest @CsvSource({
+            "25,12,48,B,50,2,1", "3,1,33.33,B,50,16.67,1", "4,2,50,A,75,25,1",
+            "4,3,75,S,100,25,1", "4,4,100,NONE,0,0,0", "0,0,0,NONE,0,0,0"})
+    void progressReturnsTheNextUnreachedGradeAndExactTodoCount(int assigned, int completed, String percent,
+            String grade, int threshold, String remaining, int count) throws Exception {
+        var a = actor();
+        catalog();
+        for (int i = 0; i < assigned; i++) todo(a, DAY, i < completed);
+
+        var progress = progress(a);
+        assertThat(progress.path("date").asText()).isEqualTo(DAY.toString());
+        assertThat(progress.path("asOf").asText()).isEqualTo(NOW.toString());
+        assertThat(progress.path("assignedTodoCount").asInt()).isEqualTo(assigned);
+        assertThat(progress.path("completedTodoCount").asInt()).isEqualTo(completed);
+        assertThat(progress.path("completionPercent").decimalValue()).isEqualByComparingTo(percent);
+        var target = progress.path("nextReward");
+        if (grade.equals("NONE")) {
+            assertThat(target.isNull()).isTrue();
+        } else {
+            assertThat(target.path("grade").asText()).isEqualTo(grade);
+            assertThat(target.path("targetCompletionPercent").asInt()).isEqualTo(threshold);
+            assertThat(target.path("remainingPercentagePoints").decimalValue()).isEqualByComparingTo(remaining);
+            assertThat(target.path("remainingTodoCount").asInt()).isEqualTo(count);
+        }
+        assertThat(settlements.count()).isZero();
+        assertThat(grants.count()).isZero();
+        assertThat(owned.count()).isZero();
+    }
+
+    @Test void progressSkipsGradesWithNoActiveUnownedItemForTheCurrentUser() throws Exception {
+        var a = actor();
+        var other = actor();
+        var catalog = catalog();
+        own(a, catalog.get(0));
+        own(other, catalog.get(1));
+        var inactive = item(ItemGrade.B, ItemCategory.BACKGROUND);
+        jdbc.update("update character_items set active=false where id=?", inactive.getId());
+        em.clear();
+        todo(a, DAY, false);
+
+        assertThat(progress(a).path("nextReward").path("grade").asText()).isEqualTo("A");
+        own(a, catalog.get(1));
+        assertThat(progress(a).path("nextReward").path("grade").asText()).isEqualTo("S");
+        own(a, catalog.get(2));
+        assertThat(progress(a).path("nextReward").isNull()).isTrue();
+        assertThat(grants.count()).isZero();
+    }
+
+    @Test void progressCountsRolledAndRecurringTodosButExcludesOtherDatesDeletedAndOtherOwners() throws Exception {
+        var a = actor();
+        var other = actor();
+        catalog();
+        var carried = todo(a, DAY.minusDays(1), false);
+        todo(a, DAY.minusDays(1), true);
+        todo(a, DAY.plusDays(1), false);
+        todo(a, DAY, true).softDelete(NOW);
+        todo(other, DAY, true);
+        var user = users.getReferenceById(a.id());
+        LocalTime start = LocalTime.of(8, 0);
+        var yesterday = DAY.minusDays(1);
+        var pattern = RepeatPattern.builder().user(user).taskName("매일 복습")
+                .frequency(RecurrenceFrequency.DAILY).scheduledTime(start)
+                .occurrenceCount(2).lastOccurrenceDate(yesterday).build();
+        pattern.observe(2, yesterday, true, NOW.minusSeconds(86400));
+        pattern.register();
+        patterns.saveAndFlush(pattern);
+        var rule = rules.saveAndFlush(RecurrenceRule.builder().user(user).sourcePattern(pattern).taskName("매일 복습")
+                .scheduledTime(start).defaultDeadlineOffsetMinutes(60)
+                .generationNotBefore(yesterday.atStartOfDay(SEOUL).toInstant()).build());
+
+        var progress = progress(a);
+        assertThat(progress.path("assignedTodoCount").asInt()).isEqualTo(2);
+        assertThat(progress.path("completedTodoCount").asInt()).isZero();
+        assertThat(todos.findById(carried.getId()).orElseThrow().getCurrentScheduleDate()).isEqualTo(DAY);
+        assertThat(todos.existsByRecurrenceRuleIdAndRecurrencePeriodStartDate(rule.getId(), DAY)).isTrue();
+        assertThat(progress(a)).isEqualTo(progress);
+        assertThat(grants.count()).isZero();
+    }
+
+    @Test void progressTracksCompletionReopenAndDeletionThenTheNextSeoulDay() throws Exception {
+        var a = actor();
+        catalog();
+        var completed = todo(a, DAY, false);
+        var deleted = todo(a, DAY, false);
+        assertThat(progress(a).path("nextReward").path("grade").asText()).isEqualTo("B");
+
+        call(a, post("/api/v1/todos/" + completed.getId() + "/complete"), null, 200);
+        assertThat(progress(a).path("nextReward").path("grade").asText()).isEqualTo("A");
+        call(a, post("/api/v1/todos/" + completed.getId() + "/reopen"), null, 200);
+        assertThat(progress(a).path("nextReward").path("grade").asText()).isEqualTo("B");
+        call(a, delete("/api/v1/todos/" + deleted.getId()), null, 204);
+        call(a, post("/api/v1/todos/" + completed.getId() + "/complete"), null, 200);
+        assertThat(progress(a).path("nextReward").isNull()).isTrue();
+        assertThat(grants.count()).isZero();
+
+        var tomorrow = DAY.plusDays(1);
+        TIME.set(tomorrow.atStartOfDay(SEOUL).toInstant());
+        var nextDay = progress(a);
+        assertThat(nextDay.path("date").asText()).isEqualTo(tomorrow.toString());
+        assertThat(nextDay.path("assignedTodoCount").asInt()).isZero();
+        assertThat(nextDay.path("nextReward").isNull()).isTrue();
+        assertThat(grants.count()).isEqualTo(3);
     }
 
     @Test void exhaustedCategoriesAndGradesNeverAccumulateRetroactiveRewardsForNewItems() throws Exception {
@@ -385,10 +496,11 @@ class RewardIntegrationTest extends IsolatedAuthIntegrationTest {
         } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue(); cleanup(a); catalog.forEach(i -> items.deleteById(i.getId())); }
     }
 
-    @Test void authenticationAndOpenApiExposeEightWorkingContractsWithoutGrantCommands() throws Exception {
+    @Test void authenticationAndOpenApiExposeNineWorkingContractsWithoutGrantCommands() throws Exception {
         assertThat(mvc.perform(get("/api/v1/character")).andReturn().getResponse().getStatus()).isEqualTo(401);
         assertThat(mvc.perform(get("/api/v1/character/items/catalog")).andReturn().getResponse().getStatus()).isEqualTo(401);
         assertThat(mvc.perform(get("/api/v1/rewards/settlements")).andReturn().getResponse().getStatus()).isEqualTo(401);
+        assertThat(mvc.perform(get("/api/v1/rewards/progress")).andReturn().getResponse().getStatus()).isEqualTo(401);
         var api = json.readTree(mvc.perform(get("/v3/api-docs")).andReturn().getResponse().getContentAsString());
         int count = 0;
         for (var path : api.path("paths").properties()) for (var operation : path.getValue().properties()) {
@@ -397,7 +509,14 @@ class RewardIntegrationTest extends IsolatedAuthIntegrationTest {
                 assertThat(operation.getValue().path("security").toString()).contains("bearerAuth");
             }
         }
-        assertThat(count).isEqualTo(8); assertThat(api.path("tags").size()).isEqualTo(9);
+        assertThat(count).isEqualTo(9); assertThat(api.path("tags").size()).isEqualTo(9);
+        var progress = api.at("/paths/~1api~1v1~1rewards~1progress/get");
+        assertThat(progress.path("parameters").isMissingNode()).isTrue();
+        var media = progress.at("/responses/200/content/application~1json");
+        assertThat(media.path("schema").path("$ref").asText()).isEqualTo("#/components/schemas/RewardProgressResponse");
+        var example = media.path("examples").path("B등급까지 2%p").path("value");
+        assertThat(example.path("nextReward").path("remainingPercentagePoints").asInt()).isEqualTo(2);
+        assertThat(media.path("examples").path("오늘 배정 없음").path("value").path("nextReward").isNull()).isTrue();
         var catalog = api.at("/paths/~1api~1v1~1character~1items~1catalog/get");
         assertThat(catalog.path("description").asText()).contains("owned=false", "미획득", "장착", "비활성");
         var parameters = catalog.path("parameters").toString();
@@ -444,6 +563,7 @@ class RewardIntegrationTest extends IsolatedAuthIntegrationTest {
         states.flush();
     }
     private JsonNode detail(Actor a, LocalDate date) throws Exception { return call(a, get("/api/v1/rewards/settlements/" + date), null, 200); }
+    private JsonNode progress(Actor a) throws Exception { return call(a, get("/api/v1/rewards/progress"), null, 200); }
     private List<Long> catalogIds(JsonNode page) {
         var ids = new ArrayList<Long>();
         page.path("items").forEach(row -> ids.add(row.path("item").path("id").asLong()));

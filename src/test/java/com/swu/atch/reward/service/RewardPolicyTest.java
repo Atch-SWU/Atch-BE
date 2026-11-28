@@ -37,6 +37,13 @@ class RewardPolicyTest {
         assertThat(RewardPolicy.eligibleGrades(assigned, completed)).isEqualTo(expected);
     }
 
+    @Test void positiveSubCentProgressGapDoesNotRoundToZero() {
+        var target = RewardPolicy.nextThreshold(20_001, 10_000, List.of(ItemGrade.B, ItemGrade.A)).orElseThrow();
+        assertThat(target.grade()).isEqualTo(ItemGrade.B);
+        assertThat(target.requiredCompleted(20_001)).isEqualTo(10_001);
+        assertThat(target.remainingPercentagePoints(20_001, 10_000)).isEqualByComparingTo("0.01");
+    }
+
     @ParameterizedTest @CsvSource({"-1,0", "1,-1", "1,2", "0,1"})
     void rejectsInconsistentStoredCounts(int assigned, int completed) {
         assertThatThrownBy(() -> RewardPolicy.eligibleGrades(assigned, completed))

@@ -1,17 +1,22 @@
 package com.swu.atch.reward.service;
 
 import com.swu.atch.common.exception.*;
+import com.swu.atch.recurrence.service.RecurrenceGenerationService;
 import com.swu.atch.report.repository.UserDailySettlementStateRepository;
 import com.swu.atch.reward.domain.RewardGrant;
 import com.swu.atch.reward.dto.request.RewardSettlementListQuery;
 import com.swu.atch.reward.dto.response.*;
 import com.swu.atch.reward.repository.*;
+import com.swu.atch.todo.domain.TodoStatus;
+import com.swu.atch.todo.repository.TodoRepository;
 import com.swu.atch.todo.service.TodoSchedulePolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -25,6 +30,27 @@ public class RewardService {
     private final UserDailySettlementStateRepository states;
     private final TodoSchedulePolicy clock;
     private final RewardResponses responses;
+    private final RecurrenceGenerationService recurrence;
+    private final TodoRepository todos;
+    private final CharacterItemRepository items;
+
+    public RewardProgressResponse progress(Long id, String stamp) {
+        return access.execute(id, stamp, ctx -> {
+            var date = clock.seoulDate(ctx.now());
+            recurrence.generateTodayLocked(ctx.user(), ctx.now());
+            var planned = todos.findAllByUser_IdAndCurrentScheduleDateAndDeletedAtIsNullOrderByStartAtAscIdAsc(id, date);
+            int assigned = planned.size();
+            int completed = (int) planned.stream().filter(todo -> todo.getStatus() == TodoStatus.COMPLETED).count();
+            var percent = assigned == 0 ? BigDecimal.ZERO
+                    : BigDecimal.valueOf(100L * completed).divide(BigDecimal.valueOf(assigned), 2, RoundingMode.DOWN);
+            var target = assigned == completed ? null
+                    : RewardPolicy.nextThreshold(assigned, completed, items.findGradesWithActiveUnownedItems(id))
+                            .map(threshold -> new RewardProgressResponse.NextReward(threshold.grade(), threshold.percent(),
+                                    threshold.remainingPercentagePoints(assigned, completed), threshold.requiredCompleted(assigned) - completed))
+                            .orElse(null);
+            return new RewardProgressResponse(date, ctx.now(), assigned, completed, percent, target);
+        });
+    }
 
     public RewardSettlementPageResponse list(Long id, String stamp, RewardSettlementListQuery query) {
         RewardPolicy.range(query.from(), query.to(), clock.seoulDate(clock.now()));

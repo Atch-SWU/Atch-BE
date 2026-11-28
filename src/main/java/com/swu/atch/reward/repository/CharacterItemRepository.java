@@ -58,6 +58,14 @@ public interface CharacterItemRepository
     // 전체 수집 완료 판단을 위한 활성 아이템 수
     long countByActiveTrue();
 
+    @Query("""
+            select distinct item.grade from CharacterItem item
+            where item.active=true
+              and not exists (select owned.id from UserCharacterItem owned
+                              where owned.user.id=:userId and owned.characterItem=item)
+            """)
+    List<ItemGrade> findGradesWithActiveUnownedItems(@Param("userId") Long userId);
+
     // 정산 트랜잭션 동안 후보의 신규 지급 가능 상태를 유지한다.
     @Lock(LockModeType.PESSIMISTIC_READ)
     @Query("""
