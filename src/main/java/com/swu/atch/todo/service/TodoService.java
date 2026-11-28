@@ -1,5 +1,8 @@
 package com.swu.atch.todo.service;
 
+import com.swu.atch.ai.domain.AiCreationRequest;
+import com.swu.atch.ai.repository.AiCreationRequestRepository;
+import com.swu.atch.ai.service.AiJson;
 import com.swu.atch.auth.service.AccountCredentials;
 import com.swu.atch.common.exception.BusinessException;
 import com.swu.atch.common.exception.ErrorCode;
@@ -23,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +40,8 @@ public class TodoService {
     private final com.swu.atch.recurrence.service.RecurrenceGenerationService recurrence;
     private final TodoResponseMapper responseMapper;
     private final com.swu.atch.ai.service.AiTodoService aiTodos;
+    private final AiCreationRequestRepository creationRequests;
+    private final AiJson json;
     private final TodoRepository todos;
     private final SessionRepository sessions;
     private final UserRepository users;
@@ -44,12 +50,30 @@ public class TodoService {
     private final com.swu.atch.report.service.DailySettlementService settlements;
     private final com.swu.atch.session.repository.TimerSwitchRepository switches;
 
+    public record Created(TodoResponse todo, boolean replayed) { }
+
     @Transactional
     public TodoResponse create(Long userId, String stamp, TodoCreateRequest request) {
         if (request.estimateChoice() != null) return aiTodos.create(userId, stamp, request).todo();
+        return createOrdinary(userId, stamp, request).todo();
+    }
+
+    public Created createOrdinary(Long userId, String stamp, TodoCreateRequest request) {
         var locked = lockUser(userId, stamp);
         User user = locked.user();
         Instant now = locked.now();
+        var requestId = request.creationRequestId();
+        String hash = null;
+        if (requestId != null) {
+            hash = json.hash(Arrays.asList("ORDINARY", request.title().trim(), request.memo(), request.startDate(),
+                    request.startTime(), request.dueDate(), request.dueTime(), request.allDay(), request.userEstimatedDurationMinutes()));
+            var previous = creationRequests.findByUser_IdAndCreationRequestId(userId, requestId).orElse(null);
+            // 사용자 잠금에서 먼저 확인해 일정이 지난 뒤에도 최초 저장 응답을 돌려준다.
+            if (previous != null) {
+                if (!hash.equals(previous.getRequestHash())) throw conflict();
+                return new Created(json.read(previous.getResultPayload(), TodoResponse.class), true);
+            }
+        }
         schedule.requireNewStartDate(request.startDate(), now);
         var times = schedule.schedule(request.startDate(), request.startTime(), request.dueDate(), request.dueTime(), request.allDay());
         var minutes = request.userEstimatedDurationMinutes();
@@ -60,7 +84,12 @@ public class TodoService {
                 .selectedEstimateType(minutes == null ? null : SelectedEstimateType.USER).build();
         // ID·Timestamp를 확정해 저장된 값을 응답한다.
         todos.saveAndFlush(todo);
-        return toResponse(todo, 0L, now);
+        var response = toResponse(todo, 0L, now);
+        if (requestId != null) {
+            // Todo와 원장이 같은 트랜잭션에서 커밋된다.
+            creationRequests.saveAndFlush(AiCreationRequest.forOrdinaryTodo(user, requestId, hash, json.write(response)));
+        }
+        return new Created(response, false);
     }
 
     public TodoPageResponse list(Long userId, TodoListQuery query) {

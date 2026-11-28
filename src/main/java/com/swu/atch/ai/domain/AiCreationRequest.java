@@ -13,6 +13,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -28,8 +29,8 @@ public class AiCreationRequest {
     @JoinColumn(name = "user_id", nullable = false, updatable = false)
     private User user;
 
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "draft_id", nullable = false, unique = true, updatable = false)
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "draft_id", unique = true, updatable = false)
     private AiDraft draft;
 
     @Column(name = "creation_request_id", nullable = false, updatable = false)
@@ -53,18 +54,22 @@ public class AiCreationRequest {
 
     public AiCreationRequest(
             User user, AiDraft draft, UUID requestId, String hash, String payload) {
-        java.util.Objects.requireNonNull(user);
-        java.util.Objects.requireNonNull(draft);
-        java.util.Objects.requireNonNull(requestId);
-        java.util.Objects.requireNonNull(payload);
-        if (!user.getId().equals(draft.getUser().getId())
-                || hash == null
-                || !hash.matches("[0-9a-f]{64}"))
-            throw new IllegalArgumentException("생성 요청 소유자·해시가 올바르지 않습니다.");
-        this.user = user;
-        this.draft = draft;
-        this.creationRequestId = requestId;
+        this(user, requestId, hash, payload);
+        this.draft = Objects.requireNonNull(draft);
+        if (!user.getId().equals(draft.getUser().getId()))
+            throw new IllegalArgumentException("생성 요청의 초안 소유자가 올바르지 않습니다.");
+    }
+
+    public static AiCreationRequest forOrdinaryTodo(User user, UUID requestId, String hash, String payload) {
+        return new AiCreationRequest(user, requestId, hash, payload);
+    }
+
+    private AiCreationRequest(User user, UUID requestId, String hash, String payload) {
+        this.user = Objects.requireNonNull(user);
+        this.creationRequestId = Objects.requireNonNull(requestId);
+        if (hash == null || !hash.matches("[0-9a-f]{64}"))
+            throw new IllegalArgumentException("생성 요청 해시가 올바르지 않습니다.");
         this.requestHash = hash;
-        this.resultPayload = payload;
+        this.resultPayload = Objects.requireNonNull(payload);
     }
 }

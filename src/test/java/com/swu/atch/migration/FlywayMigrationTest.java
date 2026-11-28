@@ -29,7 +29,7 @@ class FlywayMigrationTest {
             .withReuse(false);
 
     @Test
-    void preservesExistingDataWhenUpgradingThroughV16AndDoesNotReapplyMigrations() throws Exception {
+    void preservesExistingDataWhenUpgradingThroughV17AndDoesNotReapplyMigrations() throws Exception {
         var dataSource = new DriverManagerDataSource(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         try (var connection = dataSource.getConnection()) {
@@ -327,7 +327,34 @@ class FlywayMigrationTest {
         assertThat(jdbc.update("update character_items set item_code='legacy-hat',asset_sha256=? where id=?", "a".repeat(64), legacyItem)).isEqualTo(1);
         assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () ->
                 jdbc.update("insert into character_items(name,grade,category,asset_key,active,item_code,asset_sha256) values ('중복 모자','A','ACCESSORY','item/duplicate.png',true,'legacy-hat',?)", "a".repeat(64)));
-        System.out.println("V3->V9->V10->V11->V12->V13->V14->V15->V16: preserved users/auth/settings/todos/patterns/rules/items/ownership/equipment; "
+        var draftId = jdbc.queryForObject("select id from ai_drafts where todo_id=?", Long.class, todoId);
+        var insertCreation = """
+                insert into ai_creation_requests(user_id,draft_id,creation_request_id,request_hash,result_payload)
+                values (?,?,?,?,cast(? as jsonb))
+                """;
+        var oldKey = UUID.randomUUID();
+        jdbc.update(insertCreation, owner, draftId, oldKey, "a".repeat(64), "{\"id\":" + todoId + "}");
+        var oldCreation = jdbc.queryForMap("select * from ai_creation_requests where user_id=? and creation_request_id=?", owner, oldKey);
+        var historyV16 = jdbc.queryForList("select * from flyway_schema_history order by installed_rank");
+        var v17 = migration(dataSource, "17");
+        assertThat(v17.migrate().migrationsExecuted).isEqualTo(1);
+        v17.validate();
+        assertThat(jdbc.queryForList("select * from flyway_schema_history where version<>'17' order by installed_rank")).isEqualTo(historyV16);
+        assertThat(jdbc.queryForMap("select * from ai_creation_requests where user_id=? and creation_request_id=?", owner, oldKey))
+                .isEqualTo(oldCreation);
+        var ordinaryKey = UUID.randomUUID();
+        assertThat(jdbc.update(insertCreation, owner, null, ordinaryKey, "b".repeat(64), "{}")).isEqualTo(1);
+        assertThat(jdbc.update(insertCreation, other, null, ordinaryKey, "b".repeat(64), "{}")).isEqualTo(1);
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () ->
+                jdbc.update(insertCreation, owner, null, ordinaryKey, "c".repeat(64), "{}"));
+        var unusedDraftId = jdbc.queryForObject("""
+                insert into ai_drafts(draft_id,user_id,expires_at)
+                values (?,?,current_timestamp + interval '1 day') returning id
+                """, Long.class, UUID.randomUUID(), owner);
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () ->
+                jdbc.update(insertCreation, other, unusedDraftId, UUID.randomUUID(), "d".repeat(64), "{}"));
+        assertThat(v17.migrate().migrationsExecuted).isZero();
+        System.out.println("V3->V9->V10->V11->V12->V13->V14->V15->V16->V17: preserved users/auth/settings/todos/patterns/rules/items/ownership/equipment/creation requests; "
                 + "legacy recurrence guard verified; rerun migrations=0; "
                 + "database=atch_migration_test; container=" + POSTGRES.getContainerId());
     }
